@@ -39,25 +39,33 @@ class AirtableClient:
     # -------------------------------------------------------------------------
 
     def find_company(self, company_name: str) -> Optional[dict]:
-        """Search for a company by name (exact match preferred, partial fallback)."""
+        """Search for a company by name (exact match preferred, partial fallback).
+
+        Each strategy has its own try/except so a failure in the exact formula
+        (e.g. Airtable 422) still allows the partial fallback to run.
+        """
+        name_q = company_name.lower().replace("'", "\\'")
+
+        # 1. Exact case-insensitive match — avoids returning "Airtable Enterprise"
+        #    when the user asks for "Airtable".
         try:
-            name_q = company_name.lower().replace("'", "\\'")
-            # Prefer an exact case-insensitive match so "Airtable" doesn't hit
-            # "Airtable Enterprise" or some other record that shares the substring.
-            exact_formula = f"LOWER({{Name}}) = LOWER('{name_q}')"
-            records = self.companies.all(formula=exact_formula)
+            records = self.companies.all(formula=f"LOWER({{Name}}) = LOWER('{name_q}')")
             if records:
                 logger.info("find_company exact match for %r: %r", company_name, records[0]["fields"].get("Name"))
                 return records[0]
-            # Fall back to partial / substring match
-            partial_formula = f"SEARCH(LOWER('{name_q}'), LOWER({{Name}}))"
-            records = self.companies.all(formula=partial_formula)
+        except Exception:
+            logger.warning("find_company exact formula failed for %r, trying partial", company_name)
+
+        # 2. Partial / substring match fallback.
+        try:
+            records = self.companies.all(formula=f"SEARCH(LOWER('{name_q}'), LOWER({{Name}}))")
             if records:
                 logger.info("find_company partial match for %r: %r", company_name, records[0]["fields"].get("Name"))
-            return records[0] if records else None
+                return records[0]
         except Exception:
-            logger.exception("find_company failed for %r", company_name)
-            return None
+            logger.exception("find_company partial search failed for %r", company_name)
+
+        return None
 
     def get_company(self, record_id: str) -> Optional[dict]:
         try:
