@@ -46,16 +46,19 @@ def _get_body():
     data = request.get_json(silent=True) or {}
     user_id = data.get("user_id", "").strip()
     user_name = data.get("user_name", user_id).strip()
-    return data, user_id, user_name
+    mode = data.get("mode", "premium").strip().lower()
+    if mode not in ("premium", "basic"):
+        mode = "premium"
+    return data, user_id, user_name, mode
 
 
 @app.post("/start")
 def start():
-    _, user_id, user_name = _get_body()
+    _, user_id, user_name, mode = _get_body()
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     try:
-        reply = agent.start_conversation(user_id, user_name)
+        reply = agent.start_conversation(user_id, user_name, mode)
     except Exception as e:
         logger.exception("Error in /start")
         return jsonify({"reply": f"Sorry, something went wrong starting up: {e}"}), 500
@@ -64,7 +67,7 @@ def start():
 
 @app.post("/message")
 def message():
-    data, user_id, user_name = _get_body()
+    data, user_id, user_name, mode = _get_body()
     text = data.get("text", "").strip()
     if not user_id or not text:
         return jsonify({"error": "user_id and text are required"}), 400
@@ -72,9 +75,9 @@ def message():
     try:
         state = state_manager.get(user_id)
         if state is None:
-            reply = agent.start_conversation(user_id, user_name)
+            reply = agent.start_conversation(user_id, user_name, mode)
         else:
-            reply = agent.handle_message(user_id, user_name, text)
+            reply = agent.handle_message(user_id, user_name, text, mode)
     except Exception as e:
         logger.exception("Error in /message")
         return jsonify({"reply": f"Sorry, something went wrong: {e}"}), 500
@@ -83,11 +86,11 @@ def message():
 
 @app.post("/reset")
 def reset():
-    _, user_id, user_name = _get_body()
+    _, user_id, user_name, mode = _get_body()
     if not user_id:
         return jsonify({"error": "user_id is required"}), 400
     try:
-        reply = agent.start_conversation(user_id, user_name)
+        reply = agent.start_conversation(user_id, user_name, mode)
     except Exception as e:
         logger.exception("Error in /reset")
         return jsonify({"reply": f"Sorry, something went wrong: {e}"}), 500

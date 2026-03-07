@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Insights Agent</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -28,23 +29,74 @@
       overflow: hidden;
     }
 
+    /* ── Header ── */
     #chat-header {
-      padding: 18px 24px;
+      padding: 14px 20px;
       background: #1a1a2e;
       color: #fff;
-      font-size: 16px;
-      font-weight: 600;
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-shrink: 0;
     }
 
     #chat-header .dot {
-      width: 10px; height: 10px;
+      width: 9px; height: 9px;
       background: #4ade80;
       border-radius: 50%;
+      flex-shrink: 0;
     }
 
+    #chat-header .title {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+    }
+
+    /* ── Mode toggle ── */
+    .mode-toggle {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      color: rgba(255,255,255,0.7);
+      user-select: none;
+    }
+
+    .mode-toggle .toggle-track {
+      position: relative;
+      width: 44px;
+      height: 22px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .mode-toggle .toggle-track.on {
+      background: #f59e0b;
+    }
+
+    .mode-toggle .toggle-thumb {
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 16px; height: 16px;
+      background: #fff;
+      border-radius: 50%;
+      transition: transform 0.2s;
+    }
+
+    .mode-toggle .toggle-track.on .toggle-thumb {
+      transform: translateX(22px);
+    }
+
+    .mode-toggle .label-premium { color: #f59e0b; font-weight: 700; }
+    .mode-toggle .label-basic   { color: rgba(255,255,255,0.5); }
+    .mode-toggle.basic-active .label-premium { color: rgba(255,255,255,0.5); font-weight: 500; }
+    .mode-toggle.basic-active .label-basic   { color: #fff; font-weight: 700; }
+
+    /* ── Messages ── */
     #messages {
       flex: 1;
       overflow-y: auto;
@@ -55,15 +107,15 @@
     }
 
     .msg {
-      max-width: 80%;
+      max-width: 82%;
       padding: 10px 14px;
       border-radius: 12px;
       font-size: 14px;
-      line-height: 1.55;
-      white-space: pre-wrap;
+      line-height: 1.6;
       word-break: break-word;
     }
 
+    /* Agent messages render markdown */
     .msg.agent {
       background: #f0f2f5;
       color: #1a1a2e;
@@ -71,11 +123,25 @@
       border-bottom-left-radius: 4px;
     }
 
+    .msg.agent h1, .msg.agent h2, .msg.agent h3 {
+      font-size: 14px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .msg.agent p { margin-bottom: 8px; }
+    .msg.agent p:last-child { margin-bottom: 0; }
+    .msg.agent ul, .msg.agent ol { padding-left: 18px; margin-bottom: 8px; }
+    .msg.agent li { margin-bottom: 2px; }
+    .msg.agent strong { font-weight: 700; }
+    .msg.agent em { font-style: italic; }
+
     .msg.user {
       background: #1a1a2e;
       color: #fff;
       align-self: flex-end;
       border-bottom-right-radius: 4px;
+      white-space: pre-wrap;
     }
 
     .msg.error {
@@ -83,6 +149,7 @@
       color: #991b1b;
       align-self: center;
       font-size: 13px;
+      white-space: pre-wrap;
     }
 
     .typing {
@@ -92,14 +159,18 @@
       border-bottom-left-radius: 4px;
       font-style: italic;
       font-size: 13px;
+      padding: 10px 14px;
+      border-radius: 12px;
     }
 
+    /* ── Input row ── */
     #input-row {
       display: flex;
       gap: 8px;
       padding: 14px 16px;
       border-top: 1px solid #e5e7eb;
       background: #fff;
+      flex-shrink: 0;
     }
 
     #user-input {
@@ -127,10 +198,12 @@
       font-weight: 600;
       cursor: pointer;
       align-self: flex-end;
+      flex-shrink: 0;
     }
 
-    #send-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    /* ── Name modal ── */
     #name-modal {
       position: fixed;
       inset: 0;
@@ -195,9 +268,20 @@
 <div id="chat-container">
   <div id="chat-header">
     <div class="dot"></div>
-    Insights Agent
+    <span class="title">Insights Agent</span>
+
+    <!-- Premium / Basic toggle -->
+    <div class="mode-toggle" id="mode-toggle">
+      <span class="label-premium">Premium</span>
+      <div class="toggle-track" id="toggle-track">
+        <div class="toggle-thumb"></div>
+      </div>
+      <span class="label-basic">Basic</span>
+    </div>
   </div>
+
   <div id="messages"></div>
+
   <div id="input-row">
     <textarea id="user-input" rows="1" placeholder="Type a message…" disabled></textarea>
     <button id="send-btn" disabled>Send</button>
@@ -205,9 +289,13 @@
 </div>
 
 <script>
-  // ── identity ──────────────────────────────────────────────────────────────
+  // ── Configure marked.js ───────────────────────────────────────────────────
+  marked.setOptions({ breaks: true, gfm: true });
+
+  // ── Identity ──────────────────────────────────────────────────────────────
   let userId   = localStorage.getItem("insights_user_id");
   let userName = localStorage.getItem("insights_user_name");
+  let mode     = localStorage.getItem("insights_mode") || "premium";
 
   if (!userId) {
     userId = "u_" + Math.random().toString(36).slice(2, 10);
@@ -220,14 +308,33 @@
   const messages   = document.getElementById("messages");
   const input      = document.getElementById("user-input");
   const sendBtn    = document.getElementById("send-btn");
+  const modeToggle = document.getElementById("mode-toggle");
+  const toggleTrack = document.getElementById("toggle-track");
 
-  function enableChat() {
-    input.disabled   = false;
-    sendBtn.disabled = false;
-    input.focus();
+  // ── Mode toggle ───────────────────────────────────────────────────────────
+  function applyMode(m) {
+    mode = m;
+    localStorage.setItem("insights_mode", mode);
+    if (mode === "basic") {
+      toggleTrack.classList.add("on");
+      modeToggle.classList.add("basic-active");
+    } else {
+      toggleTrack.classList.remove("on");
+      modeToggle.classList.remove("basic-active");
+    }
   }
 
-  // ── name modal ────────────────────────────────────────────────────────────
+  applyMode(mode);
+
+  toggleTrack.addEventListener("click", () => {
+    const newMode = mode === "premium" ? "basic" : "premium";
+    applyMode(newMode);
+    // Restart conversation in the new mode
+    messages.innerHTML = "";
+    startConversation();
+  });
+
+  // ── Name modal ────────────────────────────────────────────────────────────
   if (userName) {
     modal.classList.add("hidden");
     startConversation();
@@ -247,11 +354,15 @@
     startConversation();
   }
 
-  // ── messaging ─────────────────────────────────────────────────────────────
+  // ── Messaging ─────────────────────────────────────────────────────────────
   function appendMsg(text, role) {
     const div = document.createElement("div");
     div.className = "msg " + role;
-    div.textContent = text;
+    if (role === "agent") {
+      div.innerHTML = marked.parse(text);
+    } else {
+      div.textContent = text;
+    }
     messages.appendChild(div);
     messages.scrollTop = messages.scrollHeight;
     return div;
@@ -259,7 +370,7 @@
 
   function showTyping() {
     const div = document.createElement("div");
-    div.className = "msg typing";
+    div.className = "typing";
     div.id = "typing-indicator";
     div.textContent = "Insights agent is thinking…";
     messages.appendChild(div);
@@ -271,17 +382,23 @@
     if (el) el.remove();
   }
 
+  function enableChat() {
+    input.disabled   = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
+
   async function startConversation() {
     showTyping();
     try {
       const res = await fetch("/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, user_name: userName }),
+        body: JSON.stringify({ user_id: userId, user_name: userName, mode }),
       });
       const data = await res.json();
       removeTyping();
-      appendMsg(data.reply, "agent");
+      appendMsg(data.reply || data.error || "No response.", "agent");
       enableChat();
     } catch (err) {
       removeTyping();
@@ -303,7 +420,7 @@
       const res = await fetch("/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ user_id: userId, user_name: userName, text }),
+        body: JSON.stringify({ user_id: userId, user_name: userName, text, mode }),
       });
       const data = await res.json();
       removeTyping();
@@ -326,7 +443,6 @@
     }
   });
 
-  // auto-grow textarea
   input.addEventListener("input", () => {
     input.style.height = "auto";
     input.style.height = Math.min(input.scrollHeight, 120) + "px";
