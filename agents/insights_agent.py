@@ -102,20 +102,7 @@ class InsightsAgent:
         role_record = None
 
         if role_title and company_name:
-            # Preferred: iterate all title-matching roles, resolve linked company by record ID,
-            # verify name matches. Role and company come from the same linked pair — no mismatch.
             role_record, company_record = self.db.find_role_for_company(role_title, company_name)
-
-            if not role_record:
-                # find_role_for_company found nothing (linked record IDs couldn't be resolved).
-                # Try scoping via the formula-based company lookup instead.
-                company_record = self.db.find_company(company_name)
-                if company_record:
-                    role_record = self.db.find_role(role_title, company_record["id"])
-                    if not role_record:
-                        # Company found but no matching role — reset both so we don't
-                        # accidentally show the wrong company.
-                        company_record = None
 
         elif role_title:
             role_record = self.db.find_role(role_title)
