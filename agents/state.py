@@ -9,6 +9,7 @@ from typing import Optional
 
 class Phase(Enum):
     IDENTIFY = auto()        # Waiting for user to name a company/role
+    CONFIRMING = auto()      # Showing "is this the role you mean?" before synopsis
     AWAITING_SHARE = auto()  # Basic mode: waiting for user to share what they know
     COMPANY_FOUND = auto()   # Synopsis shown, answering follow-ups
     ROLE_FOUND = auto()      # Role synopsis shown, answering follow-ups

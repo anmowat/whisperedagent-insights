@@ -82,6 +82,29 @@ class AirtableClient:
             logger.exception("find_role failed for %r", role_title)
             return None
 
+    def find_role_for_company(self, role_title: str, company_name: str) -> tuple[Optional[dict], Optional[dict]]:
+        """
+        Search all roles matching role_title, then iterate linked company records
+        to find one whose name matches company_name.  Returns (role, company).
+        More reliable than a single-record lookup when the Companies table search fails.
+        """
+        try:
+            formula = f"SEARCH(LOWER('{role_title.lower()}'), LOWER({{Title}}))"
+            candidates = self.roles.all(formula=formula)
+            for role in candidates:
+                linked_ids = role["fields"].get("Company", [])
+                for co_id in linked_ids:
+                    co = self.get_company(co_id)
+                    if co:
+                        co_name = co["fields"].get("Name", "")
+                        if (company_name.lower() in co_name.lower()
+                                or co_name.lower() in company_name.lower()):
+                            return role, co
+            return None, None
+        except Exception:
+            logger.exception("find_role_for_company failed for %r / %r", role_title, company_name)
+            return None, None
+
     def find_role_by_id(self, record_id: str) -> Optional[dict]:
         try:
             return self.roles.get(record_id)

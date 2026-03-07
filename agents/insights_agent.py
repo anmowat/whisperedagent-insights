@@ -62,7 +62,6 @@ class InsightsAgent:
     def handle_message(self, user_id: str, user_name: str, user_text: str, mode: str = "premium") -> str:
         state = self.state_manager.get_or_create(user_id, user_name, mode)
 
-        # If mode changed mid-conversation, update it
         if state.mode != mode:
             state.mode = mode
 
@@ -70,6 +69,8 @@ class InsightsAgent:
 
         if state.phase == Phase.IDENTIFY:
             reply = self._handle_identify(state, user_text)
+        elif state.phase == Phase.CONFIRMING:
+            reply = self._handle_confirming(state, user_text)
         elif state.phase == Phase.AWAITING_SHARE:
             reply = self._handle_awaiting_share(state, user_text)
         elif state.phase in (Phase.COMPANY_FOUND, Phase.ROLE_FOUND):
@@ -86,7 +87,7 @@ class InsightsAgent:
     # ------------------------------------------------------------------
 
     def _handle_identify(self, state: ConversationState, user_text: str) -> str:
-        """Parse company/role from user message, look them up, then branch on mode."""
+        """Parse company/role, find the best match, ask user to confirm before showing synopsis."""
         parsed = self._parse_company_and_role(user_text)
         company_name = parsed.get("company")
         role_title = parsed.get("role")
@@ -97,79 +98,102 @@ class InsightsAgent:
                 "Could you try again? For example: \"Acme Corp\" or \"Product Manager at Acme Corp\"."
             )
 
-        # Look up company first (may return None if Companies table lookup fails)
-        company_record = self.db.find_company(company_name) if company_name else None
-
-        # Search for the role
+        company_record = None
         role_record = None
-        if role_title:
+
+        if role_title and company_name:
+            # Most reliable: iterate all title-matching roles, check linked company name
+            role_record, company_record = self.db.find_role_for_company(role_title, company_name)
+
+        if role_title and not role_record:
+            # Fallback: scoped (if company found) or global search
             if company_record:
-                # Best case: company found, scope role search to it
                 role_record = self.db.find_role(role_title, company_record["id"])
-            elif not company_name:
-                # No company specified at all – global role search is fine
-                role_record = self.db.find_role(role_title)
             else:
-                # company_name given but Companies-table lookup failed.
-                # Try a global role search, then resolve the company from the
-                # role's linked record and verify the name actually matches.
-                candidate = self.db.find_role(role_title)
-                if candidate:
-                    linked = candidate["fields"].get("Company", [])
+                role_record = self.db.find_role(role_title)
+                if role_record:
+                    linked = role_record["fields"].get("Company", [])
                     if linked:
-                        resolved_co = self.db.get_company(linked[0])
-                        if resolved_co:
-                            co_name = resolved_co["fields"].get("Name", "")
-                            if company_name.lower() in co_name.lower() or co_name.lower() in company_name.lower():
-                                role_record = candidate
-                                company_record = resolved_co
-                    else:
-                        # Role has no linked company — still return it if title matched
-                        role_record = candidate
+                        company_record = self.db.get_company(linked[0])
 
-        # Resolve company from role if we still don't have a company record
-        if role_record and not company_record:
-            linked = role_record["fields"].get("Company", [])
-            if linked:
-                company_record = self.db.get_company(linked[0])
+        if not role_record and company_name and not company_record:
+            company_record = self.db.find_company(company_name)
 
-        found_company = bool(company_record)
-        found_role = bool(role_record)
-
-        if found_company:
-            state.company_record_id = company_record["id"]
-            state.company_name = company_record["fields"].get("Name", company_name)
-        if found_role:
-            state.role_record_id = role_record["id"]
-            state.role_title = role_record["fields"].get("Title", role_title)
-
-        if not found_company and not found_role:
+        if not role_record and not company_record:
             entity = company_name or role_title
             return (
                 f"I don't have \"{entity}\" in our database yet. "
                 "Try a slightly different name, or ask about a different company or role."
             )
 
-        if not found_company and found_role:
-            # Role found but company unknown
-            pass  # proceed to show role synopsis
+        if company_record:
+            state.company_record_id = company_record["id"]
+            state.company_name = company_record["fields"].get("Name", company_name)
+        if role_record:
+            state.role_record_id = role_record["id"]
+            state.role_title = role_record["fields"].get("Title", role_title)
 
-        # Basic mode: ask what they know before sharing the synopsis
+        # Always confirm the match before showing the full synopsis
+        role_label = state.role_title or "(role)"
+        company_label = state.company_name or "(unknown company)"
+        state.phase = Phase.CONFIRMING
+
+        if state.role_title and state.company_name:
+            return f"I found \"{role_label}\" at {company_label} — is that the one you're asking about?"
+        elif state.role_title:
+            return f"I found \"{role_label}\" — is that the role you're asking about?"
+        else:
+            return f"I found {company_label} in our database — is that the company you're asking about?"
+
+    def _handle_confirming(self, state: ConversationState, user_text: str) -> str:
+        """User responded to the confirmation prompt — proceed or re-ask."""
+        low = user_text.lower()
+        affirmative = any(w in low for w in (
+            "yes", "yeah", "yep", "yup", "correct", "right", "that's it",
+            "exactly", "sure", "ok", "okay", "confirm", "go ahead", "yea",
+        ))
+        negative = any(w in low for w in (
+            "no", "nope", "wrong", "not that", "different", "other", "another",
+        ))
+
+        if negative:
+            state.phase = Phase.IDENTIFY
+            state.company_record_id = None
+            state.company_name = None
+            state.role_record_id = None
+            state.role_title = None
+            return (
+                "Got it — could you give me a bit more detail? "
+                "For example the full role title or the exact company name."
+            )
+
+        if not affirmative:
+            # Looks like a new query — restart identify
+            state.phase = Phase.IDENTIFY
+            state.company_record_id = None
+            state.company_name = None
+            state.role_record_id = None
+            state.role_title = None
+            return self._handle_identify(state, user_text)
+
+        # Confirmed — branch on mode
         if state.mode == "basic":
             entity = state.role_title or state.company_name
             state.phase = Phase.AWAITING_SHARE
             return (
-                f"I found {entity} in our database. "
-                "Before I share what we know, what have you learned about them so far from your conversations or research?"
+                f"Great! Before I share what we know about {entity}, "
+                "what have you already learned from your conversations or research?"
             )
 
-        # Premium mode: show synopsis immediately
-        if found_role:
+        if state.role_record_id:
+            role_rec = self.db.find_role_by_id(state.role_record_id)
+            co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
             state.phase = Phase.ROLE_FOUND
-            return self._generate_role_synopsis(company_record, role_record)
+            return self._generate_role_synopsis(co_rec, role_rec)
 
+        co_rec = self.db.get_company(state.company_record_id)
         state.phase = Phase.COMPANY_FOUND
-        return self._generate_company_synopsis(company_record, role_title)
+        return self._generate_company_synopsis(co_rec, None)
 
     def _handle_awaiting_share(self, state: ConversationState, user_text: str) -> str:
         """Basic mode: user has shared what they know – now reveal the synopsis."""
@@ -212,14 +236,11 @@ class InsightsAgent:
     # Synopsis generators
     # ------------------------------------------------------------------
 
-    def _generate_company_synopsis(self, company_record: dict, role_hint: Optional[str]) -> str:
+    def _generate_company_synopsis(self, company_record: dict, _role_hint=None) -> str:
         roles = self.db.get_company_roles(company_record["id"])
         prompt = build_company_synopsis_prompt(company_record, roles, [])
         synopsis = self._call_claude([{"role": "user", "content": prompt}])
-        suffix = "\n\nWhat would you like to know more about? You can ask me anything or look up a specific role."
-        if role_hint:
-            suffix += f" (Did you mean the \"{role_hint}\" role specifically?)"
-        return synopsis + suffix
+        return synopsis + "\n\nWhat would you like to know more about? You can ask me anything or look up a specific role."
 
     def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict) -> str:
         prompt = build_role_synopsis_prompt(role_record, company_record or {}, [])
