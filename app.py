@@ -18,7 +18,7 @@ Run with:
 
 import os
 import logging
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -35,6 +35,11 @@ state_manager = StateManager()
 agent = InsightsAgent(db=db, state_manager=state_manager)
 
 app = Flask(__name__)
+
+
+@app.get("/")
+def index():
+    return render_template("index.html")
 
 
 def _get_body():
