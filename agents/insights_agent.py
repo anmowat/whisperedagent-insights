@@ -201,6 +201,17 @@ class InsightsAgent:
                 "what have you already learned from your conversations or research?"
             )
 
+        # Re-run the same lookup that produced the confirmation to get a fresh,
+        # consistent role+company pair — never rely on stored IDs that could be stale
+        # or mismatched between separate lookups.
+        if state.role_title and state.company_name:
+            role_rec, co_rec = self.db.find_role_for_company(state.role_title, state.company_name)
+            if role_rec:
+                state.role_record_id = role_rec["id"]
+                state.company_record_id = co_rec["id"] if co_rec else state.company_record_id
+                state.phase = Phase.ROLE_FOUND
+                return self._generate_role_synopsis(co_rec, role_rec)
+
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
             co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
