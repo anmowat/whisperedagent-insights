@@ -2,9 +2,8 @@
 Airtable client for the Insights agent database operations.
 
 Tables:
-- Companies: company profiles (employees, HG6M, description, confidential notes)
+- Companies (tblk2Et7RYIVCWRzD): company profiles (employees, HG6M, description, confidential notes)
 - Roles: open positions linked to companies
-- Employees: employees at companies (potential contacts)
 - Insights: user-contributed insights on companies/roles
 - Users: community members who have engaged with companies/roles
 """
@@ -12,20 +11,27 @@ Tables:
 import os
 from typing import Optional
 from pyairtable import Api
-from pyairtable.formulas import match
+
+
+# Base ID parsed from https://airtable.com/appo2zjaaetcT88Fx/...
+AIRTABLE_BASE_ID = "appo2zjaaetcT88Fx"
+# Companies table ID parsed from the URL path segment
+AIRTABLE_COMPANIES_TABLE_ID = "tblk2Et7RYIVCWRzD"
 
 
 class AirtableClient:
     def __init__(self):
         api_key = os.environ["AIRTABLE_API_KEY"]
-        base_id = os.environ["AIRTABLE_BASE_ID"]
+        base_id = os.environ.get("AIRTABLE_BASE_ID", AIRTABLE_BASE_ID)
 
         self.api = Api(api_key)
         self.base = self.api.base(base_id)
 
-        self.companies = self.base.table(os.environ.get("AIRTABLE_COMPANIES_TABLE", "Companies"))
+        # Use the table ID directly for Companies – more stable than table name
+        self.companies = self.base.table(
+            os.environ.get("AIRTABLE_COMPANIES_TABLE", AIRTABLE_COMPANIES_TABLE_ID)
+        )
         self.roles = self.base.table(os.environ.get("AIRTABLE_ROLES_TABLE", "Roles"))
-        self.employees = self.base.table(os.environ.get("AIRTABLE_EMPLOYEES_TABLE", "Employees"))
         self.insights = self.base.table(os.environ.get("AIRTABLE_INSIGHTS_TABLE", "Insights"))
         self.users = self.base.table(os.environ.get("AIRTABLE_USERS_TABLE", "Users"))
 
@@ -40,11 +46,6 @@ class AirtableClient:
         if records:
             return records[0]
         return None
-
-    def get_company_employees(self, company_id: str) -> list[dict]:
-        """Return employees linked to a company record."""
-        formula = f"FIND('{company_id}', ARRAYJOIN({{Company}}))"
-        return self.employees.all(formula=formula)
 
     def get_company_insights(self, company_id: str) -> list[dict]:
         """Return all user-submitted insights for a company."""

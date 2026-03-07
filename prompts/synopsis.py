@@ -3,15 +3,14 @@ Prompt builders for the Insights agent synopsis generation.
 """
 
 
-def build_company_synopsis_prompt(company: dict, roles: list, employees: list, insights: list) -> str:
+def build_company_synopsis_prompt(company: dict, roles: list, insights: list) -> str:
     """
     Build a prompt that instructs Claude to produce a concise, useful synopsis
     of a company for a job-seeker in the community.
 
     Args:
-        company: Airtable company record (fields dict)
-        roles:   List of Airtable role records linked to the company
-        employees: List of Airtable employee records at the company
+        company:  Airtable company record (fields dict)
+        roles:    List of Airtable role records linked to the company
         insights: List of community-contributed insight records
     """
     fields = company.get("fields", {})
@@ -47,13 +46,6 @@ Number of Employees: {fields.get('Employees', 'Unknown')}
     else:
         roles_section = "OPEN ROLES: No open roles currently tracked."
 
-    employees_section = ""
-    if employees:
-        emp_lines = [f"- {e.get('fields', {}).get('Name', 'Unknown')}" for e in employees[:10]]
-        employees_section = "KNOWN EMPLOYEES / CONTACTS:\n" + "\n".join(emp_lines)
-    else:
-        employees_section = "KNOWN EMPLOYEES / CONTACTS: None on file."
-
     insights_section = ""
     if insights:
         insight_lines = []
@@ -78,8 +70,6 @@ Below is the data we have on file for this company. Your job is to generate a fr
 {company_section}
 
 {roles_section}
-
-{employees_section}
 
 {insights_section}
 ---

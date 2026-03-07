@@ -210,11 +210,10 @@ class InsightsAgent:
         self, state: ConversationState, company_record: dict, role_hint: Optional[str]
     ) -> str:
         roles = self.db.get_company_roles(company_record["id"])
-        employees = self.db.get_company_employees(company_record["id"])
         insights = self.db.get_company_insights(company_record["id"])
         contributors = self._get_contributor_list(company_record["id"])
 
-        prompt = build_company_synopsis_prompt(company_record, roles, employees, insights)
+        prompt = build_company_synopsis_prompt(company_record, roles, insights)
         synopsis = self._call_claude([{"role": "user", "content": prompt}])
 
         # Append contributor suggestions
