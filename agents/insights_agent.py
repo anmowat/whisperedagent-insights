@@ -97,22 +97,37 @@ class InsightsAgent:
                 "Could you try again? For example: \"Acme Corp\" or \"Product Manager at Acme Corp\"."
             )
 
-        # Look up company first
+        # Look up company first (may return None if Companies table lookup fails)
         company_record = self.db.find_company(company_name) if company_name else None
 
-        # Only search for the role within the matched company (or when no company name was given)
+        # Search for the role
         role_record = None
         if role_title:
             if company_record:
-                # Scoped search – most accurate
+                # Best case: company found, scope role search to it
                 role_record = self.db.find_role(role_title, company_record["id"])
             elif not company_name:
                 # No company specified at all – global role search is fine
                 role_record = self.db.find_role(role_title)
-            # If company_name was given but not found, we skip the global role search
-            # to avoid returning a role from the wrong company
+            else:
+                # company_name given but Companies-table lookup failed.
+                # Try a global role search, then resolve the company from the
+                # role's linked record and verify the name actually matches.
+                candidate = self.db.find_role(role_title)
+                if candidate:
+                    linked = candidate["fields"].get("Company", [])
+                    if linked:
+                        resolved_co = self.db.get_company(linked[0])
+                        if resolved_co:
+                            co_name = resolved_co["fields"].get("Name", "")
+                            if company_name.lower() in co_name.lower() or co_name.lower() in company_name.lower():
+                                role_record = candidate
+                                company_record = resolved_co
+                    else:
+                        # Role has no linked company — still return it if title matched
+                        role_record = candidate
 
-        # Resolve company from role if we found a role but not a company
+        # Resolve company from role if we still don't have a company record
         if role_record and not company_record:
             linked = role_record["fields"].get("Company", [])
             if linked:
