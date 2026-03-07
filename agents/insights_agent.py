@@ -47,12 +47,12 @@ class InsightsAgent:
     # Public entry point
     # ------------------------------------------------------------------
 
-    def handle_message(self, slack_user_id: str, slack_user_name: str, user_text: str) -> str:
+    def handle_message(self, user_id: str, user_name: str, user_text: str) -> str:
         """
         Process one turn of conversation and return the agent's reply.
         This is the single entry point called by the Slack bot.
         """
-        state = self.state_manager.get_or_create(slack_user_id, slack_user_name)
+        state = self.state_manager.get_or_create(user_id, user_name)
         state.add_user_message(user_text)
 
         if state.phase == Phase.IDENTIFY:
@@ -66,21 +66,22 @@ class InsightsAgent:
         elif state.phase == Phase.COLLECTING_INSIGHTS:
             reply = self._handle_collecting_insights(state, user_text)
         else:
-            reply = "It looks like our conversation has wrapped up. Type **/insights** to start a new one!"
+            reply = "It looks like our conversation has wrapped up. Send a new message to start over!"
 
         state.add_assistant_message(reply)
         return reply
 
-    def start_conversation(self, slack_user_id: str, slack_user_name: str) -> str:
+    def start_conversation(self, user_id: str, user_name: str) -> str:
         """Called when user first invokes the Insights agent."""
-        state = self.state_manager.reset(slack_user_id, slack_user_name)
+        state = self.state_manager.reset(user_id, user_name)
         greeting = (
-            f"Hey {slack_user_name}! :wave: I'm the *Insights agent*.\n\n"
+            f"Hey {user_name}! I'm the Insights agent.\n\n"
             "I can help you:\n"
-            "• *Learn* what we know about a company or role you're interested in\n"
-            "• *Share* what you've learned from conversations or interviews\n\n"
-            "Which company or role would you like to explore? Just tell me the company name, "
-            "role title, or both (e.g. _\"Acme Corp\"_ or _\"Software Engineer at Acme Corp\"_)."
+            "- Learn what we know about a company or role you're interested in\n"
+            "- Share what you've learned from conversations or interviews\n\n"
+            "Which company or role would you like to explore? "
+            "Just tell me the company name, role title, or both "
+            "(e.g. \"Acme Corp\" or \"Software Engineer at Acme Corp\")."
         )
         state.add_assistant_message(greeting)
         return greeting
@@ -178,7 +179,7 @@ class InsightsAgent:
         lower = user_text.lower()
         if any(kw in lower for kw in ["no", "nope", "not now", "skip", "cancel", "never mind"]):
             state.phase = Phase.DONE
-            return "No problem! Feel free to come back anytime. Type **/insights** to start a new conversation."
+            return "No problem! Feel free to come back anytime."
 
         # Collect what they've shared and create records
         result = self._create_records_from_description(state, user_text)
@@ -191,8 +192,8 @@ class InsightsAgent:
         if any(kw in lower for kw in ["no", "nope", "nothing", "that's all", "done", "thanks", "thank you"]):
             state.phase = Phase.DONE
             return (
-                "Awesome – thanks for contributing! :tada: Your insights help the whole community.\n"
-                "Type **/insights** anytime to look up another company or role."
+                "Awesome – thanks for contributing! Your insights help the whole community.\n"
+                "Send another message anytime to look up a different company or role."
             )
 
         # Save the insight
@@ -344,7 +345,7 @@ Return ONLY valid JSON, no other text."""
     def _save_insight(self, state: ConversationState, content: str) -> None:
         """Write a user-contributed insight to Airtable."""
         fields = {
-            "ContributedBy": state.slack_user_id,
+            "ContributedBy": state.user_id,
             "Content": content,
             "Timestamp": datetime.now(timezone.utc).isoformat(),
         }

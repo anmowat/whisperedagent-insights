@@ -31,8 +31,8 @@ class Phase(Enum):
 
 @dataclass
 class ConversationState:
-    slack_user_id: str
-    slack_user_name: str = ""
+    user_id: str
+    user_name: str = ""
 
     phase: Phase = Phase.IDENTIFY
 
@@ -63,25 +63,25 @@ class StateManager:
     def __init__(self):
         self._store: dict[str, ConversationState] = {}
 
-    def get(self, slack_user_id: str) -> Optional[ConversationState]:
-        return self._store.get(slack_user_id)
+    def get(self, user_id: str) -> Optional[ConversationState]:
+        return self._store.get(user_id)
 
-    def get_or_create(self, slack_user_id: str, slack_user_name: str = "") -> ConversationState:
-        if slack_user_id not in self._store:
-            self._store[slack_user_id] = ConversationState(
-                slack_user_id=slack_user_id,
-                slack_user_name=slack_user_name,
+    def get_or_create(self, user_id: str, user_name: str = "") -> ConversationState:
+        if user_id not in self._store:
+            self._store[user_id] = ConversationState(
+                user_id=user_id,
+                user_name=user_name,
             )
-        return self._store[slack_user_id]
+        return self._store[user_id]
 
-    def reset(self, slack_user_id: str, slack_user_name: str = "") -> ConversationState:
+    def reset(self, user_id: str, user_name: str = "") -> ConversationState:
         """Start a fresh conversation for this user."""
         state = ConversationState(
-            slack_user_id=slack_user_id,
-            slack_user_name=slack_user_name,
+            user_id=user_id,
+            user_name=user_name,
         )
-        self._store[slack_user_id] = state
+        self._store[user_id] = state
         return state
 
-    def delete(self, slack_user_id: str) -> None:
-        self._store.pop(slack_user_id, None)
+    def delete(self, user_id: str) -> None:
+        self._store.pop(user_id, None)
