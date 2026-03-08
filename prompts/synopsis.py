@@ -52,7 +52,8 @@ Investors: {investors or 'Unknown'}
             else:
                 role_lines.append(
                     f"- {rf.get('Title', 'Untitled')} | "
-                    f"Hiring Manager: {rf.get('HM Name', 'Unknown')} | "
+                    + (f"Function: {rf['Function']} | " if rf.get('Function') else "")
+                    + f"Hiring Manager: {rf.get('HM Name', 'Unknown')} | "
                     f"Location: {', '.join(rf.get('HQ Location') or []) or fields.get('HQ', 'Unknown')} | "
                     f"Find: {rf.get('Find', '')} | "
                     f"Notes: {rf.get('Notes', '')}"
@@ -144,8 +145,9 @@ def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: 
     company_name = cf.get('Company Name', 'Unknown')
     company_ref = f"[{company_name}]({company_url})" if company_url else company_name
 
+    function_line = f"\nFunction: {rf['Function']}" if rf.get('Function') else ""
     role_section = f"""
-ROLE: {role_title}
+ROLE: {role_title}{function_line}
 Company: {company_name}
 Hiring Manager: {rf.get('HM Name', 'Unknown')}
 Location: {rf.get('HQ Location') and ', '.join(rf.get('HQ Location')) or cf.get('HQ', 'Unknown')}
@@ -253,6 +255,8 @@ def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: li
         app_page = (rf.get("App Page") or "").strip()
         title_ref = f"[{title}]({app_page})" if app_page else title
         parts = [title_ref]
+        if rf.get("Function"):
+            parts.append(f"Function: {rf['Function']}")
         if rf.get("HM Name"):
             parts.append(f"HM: {rf['HM Name']}")
         if location and location != "Unknown":

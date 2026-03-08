@@ -184,19 +184,37 @@ class AirtableClient:
                 "find_role_for_company: %d result(s) for title=%r company=%r",
                 len(records), role_title, company_name,
             )
+            co = self.find_company(company_name)
+
             if not records:
-                # Fuzzy fallback: resolve the real company name then retry by ID.
-                co = self.find_company(company_name)
+                # Fuzzy fallback 1: resolve the real company name then retry title by ID.
                 if co:
                     role = self.find_role(role_title, company_id=co["id"])
                     if role:
                         logger.info("find_role_for_company fuzzy hit: %r at %r", role_title, co["fields"].get("Company Name"))
                         return role, co
-                return None, None
+
+                # Fuzzy fallback 2: search Notes field at this company for the role keywords.
+                try:
+                    co_for_notes = co or self.find_company(company_name)
+                    if co_for_notes:
+                        notes_formula = (
+                            f"AND("
+                            f"SEARCH(LOWER('{title_q}'), LOWER({{Notes}})), "
+                            f"SEARCH(LOWER('{company_q}'), LOWER(ARRAYJOIN({{Company}})))"
+                            f")"
+                        )
+                        notes_records = self.roles.all(formula=notes_formula)
+                        if notes_records:
+                            logger.info("find_role_for_company notes hit: %r at %r", role_title, company_name)
+                            return notes_records[0], co_for_notes
+                except Exception:
+                    logger.debug("find_role_for_company notes search failed for %r / %r", role_title, company_name)
+
+                # Return the company even when no role found — callers use it for semantic matching / fallback.
+                return None, co
 
             role = records[0]
-            # Fetch company record for synopsis context.
-            co = self.find_company(company_name)
             return role, co
         except Exception:
             logger.exception("find_role_for_company failed for %r / %r", role_title, company_name)

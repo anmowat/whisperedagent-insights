@@ -147,6 +147,12 @@ class InsightsAgent:
             if linked:
                 company_record = self.db.get_company(linked[0])
 
+        # If we have a company but no role yet, try AI semantic matching against all company roles.
+        if not role_record and company_record and role_title:
+            company_roles = self.db.get_company_roles(company_record["id"])
+            if company_roles:
+                role_record = self._semantic_role_match(role_title, company_roles)
+
         if not role_record and not company_record:
             entity = company_name or role_title
             return (
@@ -154,6 +160,10 @@ class InsightsAgent:
                 "Tell me what you know about it — what's the company, the role, "
                 "and what have you learned from your conversations?"
             )
+
+        # Premium: company found but no matching role → show other roles at this company.
+        if not role_record and company_record and role_title and state.mode == "premium":
+            return self._premium_role_not_found_response(state, company_record, role_title)
 
         if company_record:
             state.company_record_id = company_record["id"]
@@ -404,7 +414,7 @@ class InsightsAgent:
 
         # Premium + role: ensure Claude always gives a brief overview of what we know
         if state.mode == "premium" and role_fields:
-            key_facts = {k: v for k, v in merged_role.items() if v and k in ("Title", "HM Name", "HQ Location", "Find", "Notes")}
+            key_facts = {k: v for k, v in merged_role.items() if v and k in ("Title", "Function", "HM Name", "HQ Location", "Find", "Notes")}
             system = system + (
                 "\n\nIMPORTANT: You are discussing the role below with a premium member. "
                 "Always reference what we know about it (briefly) before asking your question.\n"
@@ -597,6 +607,84 @@ class InsightsAgent:
         except Exception:
             logger.debug("_map_location_to_picklist failed for %r", location_text)
         return []
+
+    def _semantic_role_match(self, role_query: str, roles: list[dict]) -> Optional[dict]:
+        """
+        Ask Claude which role in *roles* best matches *role_query* using semantic understanding
+        (e.g. "RevOps" → "Director of GTM Strategy/Ops"). Returns the matched role record or None.
+        """
+        summaries = []
+        for i, r in enumerate(roles):
+            rf = r.get("fields", {})
+            title = rf.get("Title", "Untitled")
+            function = rf.get("Function", "")
+            notes_snippet = (rf.get("Notes") or "")[:200]
+            line = f"{i}: {title}"
+            if function:
+                line += f" ({function})"
+            if notes_snippet:
+                line += f" — {notes_snippet}"
+            summaries.append(line)
+
+        prompt = (
+            f'A user is looking for: "{role_query}"\n\n'
+            f'Available roles:\n' + "\n".join(summaries) + "\n\n"
+            f'Which index best matches? Consider synonyms and related terms '
+            f'(e.g. "RevOps" matches "GTM Strategy/Ops" or "Revenue Operations"). '
+            f'Return just the integer index if confident, or null if no good match. '
+            f'Valid JSON only — no preamble.'
+        )
+        try:
+            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=16)
+            cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            result = json.loads(cleaned)
+            if isinstance(result, int) and 0 <= result < len(roles):
+                matched_title = roles[result]["fields"].get("Title")
+                logger.info("_semantic_role_match: %r → %r", role_query, matched_title)
+                return roles[result]
+        except Exception:
+            logger.debug("_semantic_role_match failed for %r", role_query)
+        return None
+
+    def _premium_role_not_found_response(
+        self, state: ConversationState, company_record: dict, role_query: str
+    ) -> str:
+        """
+        Premium fallback: the specific role wasn't found but the company is known.
+        Set company context in state and show the other roles we're tracking there.
+        """
+        state.company_record_id = company_record["id"]
+        state.company_name = company_record["fields"].get("Company Name", "")
+        raw_domain = company_record["fields"].get("Domain") or ""
+        state.company_domain = self._ensure_https(raw_domain.strip())
+        state.phase = Phase.COMPANY_FOUND
+
+        roles = self.db.get_company_roles(company_record["id"])
+        co_ref = self._company_ref(state)
+
+        if not roles:
+            return (
+                f"I couldn't find a **{role_query}** role at {co_ref} — "
+                "and we don't have any other roles tracked there right now. "
+                "Tell me what you know about it and I'll capture it."
+            )
+
+        open_roles = [r for r in roles if (r["fields"].get("Status") or "open").lower() != "closed"]
+        display_roles = open_roles or roles  # fall back to all if everything is closed
+        role_lines = []
+        for r in display_roles:
+            rf = r.get("fields", {})
+            line = f"- **{rf.get('Title', 'Untitled')}**"
+            if rf.get("Function"):
+                line += f" ({rf['Function']})"
+            role_lines.append(line)
+
+        return (
+            f"I couldn't find a **{role_query}** role at {co_ref}, "
+            f"but here are the other roles we're tracking there:\n\n"
+            + "\n".join(role_lines)
+            + "\n\nIs one of these what you were looking for?"
+        )
 
     def _simple_merge(self, field_name: str, existing: str, new_info: str) -> str:
         """
