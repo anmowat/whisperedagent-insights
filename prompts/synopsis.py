@@ -98,19 +98,19 @@ Number of Employees: {fields.get('Employees', 'Unknown')}
 
     body = "\n\n".join(sections)
 
-    return f"""You are an Insights agent helping members of a professional community learn about companies they are interested in or interviewing with.
+    return f"""You are the Insights agent for a professional community. A member just asked about this company.
 
-{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}Below is the data we have on file for this company. Your job is to generate a friendly, helpful synopsis that:
-1. Highlights what makes this company interesting or noteworthy.
-2. Mentions the open roles and what we know about them.
-3. Summarizes community insights without exposing raw confidential notes – use your judgment to share relevant context diplomatically.
-4. Keeps it concise (under 300 words) and conversational – like a knowledgeable friend briefing you before a coffee chat.
-
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}DATA ON FILE:
 ---
 {body}
 ---
 
-Please write the synopsis now."""
+Write a SHORT response (3-4 sentences max) that:
+1. Gives the most useful snapshot of the company — what makes it interesting right now.
+2. Notes any open roles briefly (just titles, no details dump).
+3. Ends with ONE natural, open question asking what they've learned or experienced with this company.
+
+Do NOT try to share everything — leave room for dialogue. No markdown."""
 
 
 def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium") -> str:
@@ -177,18 +177,19 @@ HG6M Outlook: {cf.get('HG6M', 'N/A')}
 
     body = "\n\n".join(sections)
 
-    return f"""You are an Insights agent helping a community member learn about a specific job role.
+    return f"""You are the Insights agent for a professional community. A member just asked about this role.
 
-{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}Below is everything we know. Write a friendly, concise (under 200 words) briefing covering:
-1. What we know about the role and the hiring process.
-2. Community insights that might help them prepare or decide.
-3. Any gaps in our knowledge they could help fill in.
-
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}DATA ON FILE:
 ---
 {body}
 ---
 
-Please write the role briefing now."""
+Write a SHORT response (3-4 sentences max) that:
+1. Summarises what we know about the role — the 1-2 most useful things.
+2. Mentions anything notable about the hiring process if we have it.
+3. Ends with ONE natural question asking what they've learned from their own conversations.
+
+Do NOT try to share everything at once — the goal is to start a dialogue. No markdown."""
 
 
 def build_info_collection_prompt(entity_type: str, entity_name: str, existing_fields: dict) -> str:

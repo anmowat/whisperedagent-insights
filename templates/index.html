@@ -14,13 +14,25 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      height: 100vh;
+      min-height: 100vh;
+      padding: 16px;
     }
 
-    #chat-container {
+    /* ── Outer wrapper — chat + panel side by side ── */
+    #app {
+      display: flex;
+      gap: 14px;
       width: 100%;
-      max-width: 680px;
+      max-width: 1060px;
       height: 90vh;
+      align-items: flex-start;
+    }
+
+    /* ── Chat container ── */
+    #chat-container {
+      flex: 1;
+      min-width: 0;
+      height: 100%;
       background: #fff;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.10);
@@ -53,7 +65,7 @@
       flex: 1;
     }
 
-    /* ── Tier toggle (3-way segmented control) ── */
+    /* ── Tier toggle ── */
     .tier-toggle {
       display: flex;
       background: rgba(255,255,255,0.12);
@@ -77,18 +89,9 @@
       font-family: inherit;
     }
 
-    .tier-btn:hover:not(.active) {
-      color: rgba(255,255,255,0.85);
-    }
-
-    .tier-btn.active {
-      background: #fff;
-      color: #1a1a2e;
-    }
-
-    .tier-btn[data-tier="premium"].active {
-      color: #d97706;
-    }
+    .tier-btn:hover:not(.active) { color: rgba(255,255,255,0.85); }
+    .tier-btn.active { background: #fff; color: #1a1a2e; }
+    .tier-btn[data-tier="premium"].active { color: #d97706; }
 
     /* ── Messages ── */
     #messages {
@@ -109,7 +112,6 @@
       word-break: break-word;
     }
 
-    /* Agent messages render markdown */
     .msg.agent {
       background: #f0f2f5;
       color: #1a1a2e;
@@ -117,18 +119,10 @@
       border-bottom-left-radius: 4px;
     }
 
-    .msg.agent h1, .msg.agent h2, .msg.agent h3 {
-      font-size: 14px;
-      font-weight: 700;
-      margin-bottom: 4px;
-    }
-
     .msg.agent p { margin-bottom: 8px; }
     .msg.agent p:last-child { margin-bottom: 0; }
     .msg.agent ul, .msg.agent ol { padding-left: 18px; margin-bottom: 8px; }
     .msg.agent li { margin-bottom: 2px; }
-    .msg.agent strong { font-weight: 700; }
-    .msg.agent em { font-style: italic; }
 
     .msg.user {
       background: #1a1a2e;
@@ -143,7 +137,6 @@
       color: #991b1b;
       align-self: center;
       font-size: 13px;
-      white-space: pre-wrap;
     }
 
     .typing {
@@ -197,6 +190,96 @@
 
     #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+    /* ══════════════════════════════════════════════════════════
+       Suggested Updates Panel
+       ══════════════════════════════════════════════════════════ */
+    #updates-panel {
+      width: 290px;
+      flex-shrink: 0;
+      height: 100%;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.10);
+      display: none;           /* hidden until first update arrives */
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    #updates-panel.visible {
+      display: flex;
+    }
+
+    #updates-header {
+      padding: 12px 14px;
+      background: #1a1a2e;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    #updates-header h3 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    #updates-header p {
+      font-size: 11px;
+      color: rgba(255,255,255,0.55);
+      margin-top: 2px;
+    }
+
+    #updates-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    /* Entity section (Role / Company) */
+    .update-section {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .update-section-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #9ca3af;
+      padding-bottom: 4px;
+      border-bottom: 1px solid #f3f4f6;
+    }
+
+    /* Individual field row */
+    .update-field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+
+    .update-field-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: #6b7280;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .update-field-value {
+      font-size: 12px;
+      color: #1a1a2e;
+      line-height: 1.5;
+      background: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 6px 8px;
+      word-break: break-word;
+    }
+
     /* ── Name modal ── */
     #name-modal {
       position: fixed;
@@ -244,6 +327,22 @@
       font-weight: 600;
       cursor: pointer;
     }
+
+    /* ── Responsive: stack vertically on small screens ── */
+    @media (max-width: 720px) {
+      body { align-items: flex-start; padding: 8px; }
+      #app {
+        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
+      }
+      #chat-container { height: 65vh; }
+      #updates-panel {
+        width: 100%;
+        height: auto;
+        max-height: 40vh;
+      }
+    }
   </style>
 </head>
 <body>
@@ -258,30 +357,41 @@
   </div>
 </div>
 
-<!-- Chat UI -->
-<div id="chat-container">
-  <div id="chat-header">
-    <div class="dot"></div>
-    <span class="title">Insights Agent</span>
+<!-- ── App layout ── -->
+<div id="app">
 
-    <!-- Free / Pro / Premium tier toggle -->
-    <div class="tier-toggle" id="tier-toggle">
-      <button class="tier-btn" data-tier="free">Free</button>
-      <button class="tier-btn" data-tier="pro">Pro</button>
-      <button class="tier-btn" data-tier="premium">Premium</button>
+  <!-- Chat -->
+  <div id="chat-container">
+    <div id="chat-header">
+      <div class="dot"></div>
+      <span class="title">Insights Agent</span>
+      <div class="tier-toggle" id="tier-toggle">
+        <button class="tier-btn" data-tier="free">Free</button>
+        <button class="tier-btn" data-tier="pro">Pro</button>
+        <button class="tier-btn" data-tier="premium">Premium</button>
+      </div>
+    </div>
+
+    <div id="messages"></div>
+
+    <div id="input-row">
+      <textarea id="user-input" rows="1" placeholder="Type a message…" disabled></textarea>
+      <button id="send-btn" disabled>Send</button>
     </div>
   </div>
 
-  <div id="messages"></div>
-
-  <div id="input-row">
-    <textarea id="user-input" rows="1" placeholder="Type a message…" disabled></textarea>
-    <button id="send-btn" disabled>Send</button>
+  <!-- Suggested Updates Panel -->
+  <div id="updates-panel">
+    <div id="updates-header">
+      <h3>Suggested Updates</h3>
+      <p>What we'd write to the database — not saved yet</p>
+    </div>
+    <div id="updates-body"></div>
   </div>
-</div>
+
+</div><!-- #app -->
 
 <script>
-  // ── Configure marked.js ───────────────────────────────────────────────────
   marked.setOptions({ breaks: true, gfm: true });
 
   // ── Identity ──────────────────────────────────────────────────────────────
@@ -301,6 +411,8 @@
   const input      = document.getElementById("user-input");
   const sendBtn    = document.getElementById("send-btn");
   const tierToggle = document.getElementById("tier-toggle");
+  const updatesPanel = document.getElementById("updates-panel");
+  const updatesBody  = document.getElementById("updates-body");
 
   // ── Tier toggle ───────────────────────────────────────────────────────────
   function applyMode(m) {
@@ -318,6 +430,7 @@
     if (!btn || btn.dataset.tier === mode) return;
     applyMode(btn.dataset.tier);
     messages.innerHTML = "";
+    clearUpdatesPanel();
     startConversation();
   });
 
@@ -339,6 +452,95 @@
     localStorage.setItem("insights_user_name", userName);
     modal.classList.add("hidden");
     startConversation();
+  }
+
+  // ── Suggested Updates Panel ───────────────────────────────────────────────
+
+  // Field display names and ordering
+  const ROLE_FIELD_LABELS = {
+    "Find":         "How to Get In",
+    "Notes":        "Role Notes",
+    "Location":     "Location",
+    "Compensation": "Compensation",
+  };
+
+  const COMPANY_FIELD_LABELS = {
+    "Confidential Notes": "Confidential Notes",
+  };
+
+  function clearUpdatesPanel() {
+    updatesBody.innerHTML = "";
+    updatesPanel.classList.remove("visible");
+  }
+
+  function renderUpdatesPanel(updates) {
+    if (!updates || typeof updates !== "object") return;
+
+    const roleName    = updates.role_name    || null;
+    const companyName = updates.company_name || null;
+    const roleFields  = updates.role    || {};
+    const companyFields = updates.company || {};
+
+    // Check if there's anything to show
+    const hasRole    = Object.values(roleFields).some(Boolean);
+    const hasCompany = Object.values(companyFields).some(Boolean);
+    if (!hasRole && !hasCompany) return;
+
+    updatesBody.innerHTML = "";
+    updatesPanel.classList.add("visible");
+
+    if (hasRole) {
+      const section = document.createElement("div");
+      section.className = "update-section";
+
+      const title = document.createElement("div");
+      title.className = "update-section-title";
+      title.textContent = roleName ? `Role — ${roleName}` : "Role";
+      section.appendChild(title);
+
+      for (const [field, label] of Object.entries(ROLE_FIELD_LABELS)) {
+        const value = roleFields[field];
+        if (!value) continue;
+        section.appendChild(makeFieldRow(label, value));
+      }
+
+      updatesBody.appendChild(section);
+    }
+
+    if (hasCompany) {
+      const section = document.createElement("div");
+      section.className = "update-section";
+
+      const title = document.createElement("div");
+      title.className = "update-section-title";
+      title.textContent = companyName ? `Company — ${companyName}` : "Company";
+      section.appendChild(title);
+
+      for (const [field, label] of Object.entries(COMPANY_FIELD_LABELS)) {
+        const value = companyFields[field];
+        if (!value) continue;
+        section.appendChild(makeFieldRow(label, value));
+      }
+
+      updatesBody.appendChild(section);
+    }
+  }
+
+  function makeFieldRow(label, value) {
+    const row = document.createElement("div");
+    row.className = "update-field";
+
+    const lbl = document.createElement("div");
+    lbl.className = "update-field-label";
+    lbl.textContent = label;
+
+    const val = document.createElement("div");
+    val.className = "update-field-value";
+    val.textContent = value;
+
+    row.appendChild(lbl);
+    row.appendChild(val);
+    return row;
   }
 
   // ── Messaging ─────────────────────────────────────────────────────────────
@@ -412,6 +614,11 @@
       const data = await res.json();
       removeTyping();
       appendMsg(data.reply || data.error || "No response.", "agent");
+
+      // Update the suggested-updates panel if the server returned updates
+      if (data.suggested_updates) {
+        renderUpdatesPanel(data.suggested_updates);
+      }
     } catch (err) {
       removeTyping();
       appendMsg("Could not reach the server. Please refresh.", "error");

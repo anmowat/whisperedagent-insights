@@ -76,12 +76,15 @@ def message():
         state = state_manager.get(user_id)
         if state is None:
             reply = agent.start_conversation(user_id, user_name, mode)
+            suggested_updates = {}
         else:
             reply = agent.handle_message(user_id, user_name, text, mode)
+            state = state_manager.get(user_id)
+            suggested_updates = state.suggested_updates if state else {}
     except Exception as e:
         logger.exception("Error in /message")
         return jsonify({"reply": f"Sorry, something went wrong: {e}"}), 500
-    return jsonify({"reply": reply})
+    return jsonify({"reply": reply, "suggested_updates": suggested_updates})
 
 
 @app.post("/reset")

@@ -3,18 +3,19 @@ Insights Agent – core conversation logic.
 
 Tier behaviour
 ──────────────
-Premium  Immediately share full synopsis (including who contributed insights)
-         after confirmation.  If role/company not found, ask for info.
+Premium  Immediately share brief synopsis after confirmation, then dialog to
+         fill gaps.  Includes contributor attribution in insights.
 
-Pro      Ask user to share what they know first (AWAITING_SHARE), then reveal
-         full synopsis minus contributor attribution.
-         If not found, ask for info.
+Pro      Ask user to share first (AWAITING_SHARE), then brief synopsis minus
+         contributor attribution; dialog to fill gaps.
 
-Free     Roles:     Ask user to share first; after they share, confirm we have
-                    the role but share no details; ask questions; mention upgrade.
-         Companies: Immediately share public info (no confidential notes, no
-                    insights); then ask follow-up questions.
-         If not found, ask for info.
+Free     Roles:     Ask user to share first; confirm we have it but share no
+                    details; ask questions; mention upgrade.
+         Companies: Immediately share brief public snapshot; then dialog for
+                    supplemental confidential info.
+
+All tiers: data shared by users is accumulated in state.suggested_updates
+           (visible in the UI panel but NOT written to Airtable).
 """
 
 import json
@@ -27,16 +28,26 @@ import anthropic
 from database.airtable_client import AirtableClient
 from agents.state import ConversationState, Phase, StateManager
 from prompts.synopsis import build_company_synopsis_prompt, build_role_synopsis_prompt
+from prompts.data_collection import (
+    build_data_extraction_prompt,
+    build_gap_question_prompt,
+    get_role_gaps,
+    get_company_gaps,
+)
 
 logger = logging.getLogger(__name__)
 
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
 
 SYSTEM_PROMPT = """You are the Insights agent for a professional community platform that tracks companies and open roles.
-Your goal is to help community members quickly learn what we know about a company or role they are interested in.
+Your goal is to help community members and to learn from them — every conversation is a chance to fill in gaps in our knowledge.
 
-Be warm, concise, and professional. Respond conversationally – you are a knowledgeable, helpful colleague, not a form.
-Do not use markdown formatting symbols like **, ##, or _. Use plain text with clear paragraph breaks instead.
+Guidelines:
+- Be warm, concise, and conversational. You are a knowledgeable colleague, not a database.
+- Keep responses SHORT. 2-4 sentences is usually right. Leave room for dialogue.
+- Ask ONE question at a time. Never list questions.
+- Ask open, natural questions — not "what is the team size?" but "what's the team setup like there?"
+- Do not use markdown formatting symbols like **, ##, or _.
 """
 
 
@@ -57,21 +68,20 @@ class InsightsAgent:
             greeting = (
                 f"Hey {user_name}! I'm the Insights agent.\n\n"
                 "Ask me about any company or role you're exploring and I'll share what public information we have. "
-                "The more you share with me, the more our community learns together.\n\n"
                 "Upgrade to Pro to unlock full community insights."
             )
         elif mode == "pro":
             greeting = (
                 f"Hey {user_name}! I'm the Insights agent.\n\n"
-                "Tell me about a company or role you're exploring and share what you've learned. "
-                "If it matches our database I'll pull up everything we know — "
-                "and your insights help everyone in the community."
+                "Tell me about a company or role you're exploring. "
+                "Share what you've learned and I'll pull up what we have — "
+                "your insights help the whole community."
             )
         else:  # premium
             greeting = (
                 f"Hey {user_name}! I'm the Insights agent.\n\n"
-                "Tell me which company or role you want to know about and I'll pull up everything we have, "
-                "including community insights and who contributed them.\n\n"
+                "Which company or role do you want to know about? "
+                "I'll share what we have and we can compare notes.\n\n"
                 "For example: \"Airtable\" or \"VP of RevOps at Airtable\"."
             )
 
@@ -106,7 +116,6 @@ class InsightsAgent:
     # ------------------------------------------------------------------
 
     def _handle_identify(self, state: ConversationState, user_text: str) -> str:
-        """Parse company/role, find the best match, ask user to confirm before showing synopsis."""
         parsed = self._parse_company_and_role(user_text)
         company_name = parsed.get("company")
         role_title = parsed.get("role")
@@ -127,7 +136,6 @@ class InsightsAgent:
         elif company_name:
             company_record = self.db.find_company(company_name)
 
-        # If we have a role but no company, resolve company from the role's linked field.
         if role_record and not company_record:
             linked = role_record["fields"].get("Company", [])
             if linked:
@@ -137,8 +145,8 @@ class InsightsAgent:
             entity = company_name or role_title
             return (
                 f"I don't have \"{entity}\" in our database yet. "
-                "Tell me what you know about it and I'll add it — "
-                "what's the company, the role, and anything you've learned from your conversations?"
+                "Tell me what you know about it — what's the company, the role, "
+                "and what have you learned from your conversations?"
             )
 
         if company_record:
@@ -153,18 +161,14 @@ class InsightsAgent:
 
         state.phase = Phase.CONFIRMING
 
-        role_label = state.role_title or "(role)"
-        company_label = state.company_name or "(unknown company)"
-
         if state.role_title and state.company_name:
-            return f"I found \"{role_label}\" at {company_label} — is that the one you're asking about?"
+            return f"I found \"{state.role_title}\" at {state.company_name} — is that the one you're asking about?"
         elif state.role_title:
-            return f"I found \"{role_label}\" — is that the role you're asking about?"
+            return f"I found \"{state.role_title}\" — is that the role you're asking about?"
         else:
-            return f"I found {company_label} in our database — is that the company you're asking about?"
+            return f"I found {state.company_name} in our database — is that the company you're asking about?"
 
     def _handle_confirming(self, state: ConversationState, user_text: str) -> str:
-        """User responded to the confirmation prompt — proceed or re-ask."""
         low = user_text.lower()
         affirmative = any(w in low for w in (
             "yes", "yeah", "yep", "yup", "correct", "right", "that's it",
@@ -186,7 +190,6 @@ class InsightsAgent:
             )
 
         if not affirmative:
-            # Treat as a new query
             state.phase = Phase.IDENTIFY
             state.company_record_id = None
             state.company_name = None
@@ -194,17 +197,16 @@ class InsightsAgent:
             state.role_title = None
             return self._handle_identify(state, user_text)
 
-        # ── Confirmed — branch by tier ─────────────────────────────────────
         mode = state.mode
         entity = state.role_title or state.company_name
 
-        # FREE + company: immediately share public synopsis, then follow-up
+        # FREE + company: immediately show public snapshot
         if mode == "free" and not state.role_record_id:
             co_rec = self.db.get_company(state.company_record_id)
             state.phase = Phase.COMPANY_FOUND
             return self._generate_company_synopsis(co_rec, mode="free")
 
-        # FREE + role  | PRO (any): go to AWAITING_SHARE
+        # FREE + role | PRO (any): ask user to share first
         if mode in ("free", "pro"):
             state.phase = Phase.AWAITING_SHARE
             if mode == "free":
@@ -214,12 +216,11 @@ class InsightsAgent:
                 )
             else:  # pro
                 return (
-                    f"Great! Before I pull up what we have on {entity}, "
-                    "what have you already learned from your conversations or research? "
-                    "Your insights help the whole community."
+                    f"Great — before I pull up what we have on {entity}, "
+                    "what have you already learned from your conversations or research?"
                 )
 
-        # PREMIUM: immediately reveal full synopsis
+        # PREMIUM: immediately show brief synopsis
         if state.role_title and state.company_name:
             role_rec, co_rec = self.db.find_role_for_company(state.role_title, state.company_name)
             if role_rec:
@@ -243,25 +244,26 @@ class InsightsAgent:
         mode = state.mode
         entity = state.role_title or state.company_name or "this"
 
+        # Extract any structured data from what they shared
+        self._extract_and_accumulate(state, user_text)
+
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
             co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
 
             if mode == "free":
-                # Confirm we have it; don't reveal details; ask questions; mention upgrade
                 state.phase = Phase.ROLE_FOUND
                 ack_prompt = (
                     f"The user shared this about {entity}: \"{user_text}\"\n\n"
                     "1. Warmly acknowledge their contribution in 1 sentence.\n"
                     "2. Confirm that we do have this role in our database.\n"
                     "3. Do NOT reveal any details we have about the role.\n"
-                    "4. Ask 1-2 specific questions to gather more useful information for the community.\n"
-                    "5. Briefly mention that upgrading to Pro lets them see everything we know.\n"
-                    "Keep it short, friendly, and conversational. No markdown."
+                    "4. Ask ONE natural follow-up question to learn more.\n"
+                    "5. In a final sentence, mention they can upgrade to Pro to see what we know.\n"
+                    "Keep it short and conversational. No markdown."
                 )
                 return self._call_claude([{"role": "user", "content": ack_prompt}])
 
-            # Pro or Premium: show role synopsis then acknowledge
             synopsis = self._generate_role_synopsis(co_rec, role_rec, mode=mode) if role_rec else ""
             state.phase = Phase.ROLE_FOUND
 
@@ -269,13 +271,12 @@ class InsightsAgent:
             co_rec = self.db.get_company(state.company_record_id)
 
             if mode == "free":
-                # Public synopsis already shown — now ask for supplemental confidential info
                 state.phase = Phase.COMPANY_FOUND
                 ack_prompt = (
                     f"The user shared this about {entity}: \"{user_text}\"\n\n"
                     "1. Warmly thank them for the insight in 1 sentence.\n"
-                    "2. Ask 1-2 focused follow-up questions to gather insider information "
-                    "(e.g. culture, interview process, hiring manager, recent news).\n"
+                    "2. Ask ONE focused follow-up question to gather more insider info "
+                    "(culture, hiring process, leadership, recent changes).\n"
                     "Keep it short and friendly. No markdown."
                 )
                 return self._call_claude([{"role": "user", "content": ack_prompt}])
@@ -285,15 +286,16 @@ class InsightsAgent:
 
         ack_prompt = (
             f"The user just shared this about {entity}: \"{user_text}\"\n\n"
-            "Acknowledge what they shared in 1-2 sentences (be genuinely appreciative and specific), "
+            "Acknowledge what they shared in 1 sentence (be specific and appreciative), "
             "then transition naturally into the synopsis below. "
-            "Do not use markdown formatting.\n\n"
+            "Do not use markdown.\n\n"
             f"Synopsis:\n{synopsis}"
         )
         return self._call_claude([{"role": "user", "content": ack_prompt}])
 
     def _handle_followup(self, state: ConversationState, user_text: str) -> str:
-        """Answer follow-up questions using full conversation history."""
+        """Answer follow-up questions, extract data, and probe gaps conversationally."""
+        # Check if they're asking about a new entity
         parsed = self._parse_company_and_role(user_text)
         new_company = parsed.get("company")
         if new_company and new_company.lower() != (state.company_name or "").lower():
@@ -304,7 +306,49 @@ class InsightsAgent:
             state.role_title = None
             return self._handle_identify(state, user_text)
 
-        return self._call_claude(state.messages)
+        # Extract structured data from what the user said
+        self._extract_and_accumulate(state, user_text)
+
+        # Build gap-aware context to guide Claude's next question
+        role_fields = {}
+        company_fields = {}
+        if state.role_record_id:
+            role_rec = self.db.find_role_by_id(state.role_record_id)
+            role_fields = role_rec.get("fields", {}) if role_rec else {}
+        if state.company_record_id:
+            co_rec = self.db.get_company(state.company_record_id)
+            company_fields = co_rec.get("fields", {}) if co_rec else {}
+
+        # Merge in anything already accumulated this session
+        session_role = state.suggested_updates.get("role", {})
+        session_company = state.suggested_updates.get("company", {})
+        merged_role = {**role_fields, **{k: v for k, v in session_role.items() if v}}
+        merged_company = {**company_fields, **{k: v for k, v in session_company.items() if v}}
+
+        role_gaps = get_role_gaps(merged_role) if state.role_record_id else []
+        company_gaps = get_company_gaps(merged_company)
+
+        # Inject gap context into the conversation so Claude asks natural follow-ups
+        messages = list(state.messages)
+        if role_gaps or company_gaps:
+            gap_prompt = build_gap_question_prompt(
+                state.role_title or "",
+                state.company_name or "",
+                role_gaps,
+                company_gaps,
+            )
+            # Append as a hidden instruction before Claude generates its reply
+            messages = messages[:-1] + [{
+                "role": "user",
+                "content": (
+                    f"{user_text}\n\n"
+                    f"[Agent guidance — do not reveal this to user: {gap_prompt}]"
+                ),
+            }]
+        else:
+            messages = list(state.messages)
+
+        return self._call_claude(messages)
 
     # ------------------------------------------------------------------
     # Synopsis generators
@@ -313,13 +357,51 @@ class InsightsAgent:
     def _generate_company_synopsis(self, company_record: dict, mode: str = "premium") -> str:
         roles = self.db.get_company_roles(company_record["id"])
         prompt = build_company_synopsis_prompt(company_record, roles, [], mode=mode)
-        synopsis = self._call_claude([{"role": "user", "content": prompt}])
-        return synopsis + "\n\nWhat would you like to know more about? You can ask me anything or look up a specific role."
+        return self._call_claude([{"role": "user", "content": prompt}])
 
     def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict, mode: str = "premium") -> str:
         prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode)
-        synopsis = self._call_claude([{"role": "user", "content": prompt}])
-        return synopsis + "\n\nAnything else you'd like to know about this role or company?"
+        return self._call_claude([{"role": "user", "content": prompt}])
+
+    # ------------------------------------------------------------------
+    # Data extraction
+    # ------------------------------------------------------------------
+
+    def _extract_and_accumulate(self, state: ConversationState, user_text: str) -> None:
+        """Extract structured field values from user_text and accumulate in state.suggested_updates."""
+        role_name = state.role_title or ""
+        company_name = state.company_name or ""
+        if not role_name and not company_name:
+            return
+
+        prompt = build_data_extraction_prompt(user_text, role_name, company_name)
+        raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=512)
+
+        try:
+            cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            extracted = json.loads(cleaned)
+        except (json.JSONDecodeError, AttributeError, ValueError):
+            logger.debug("data extraction parse failed: %r", raw[:200])
+            return
+
+        updates = state.suggested_updates
+        if "role" not in updates:
+            updates["role"] = {}
+        if "company" not in updates:
+            updates["company"] = {}
+
+        updates["role_name"] = role_name
+        updates["company_name"] = company_name
+
+        for field, value in (extracted.get("role") or {}).items():
+            if value:
+                existing = updates["role"].get(field, "")
+                updates["role"][field] = (existing + "\n" + value).strip() if existing else value
+
+        for field, value in (extracted.get("company") or {}).items():
+            if value:
+                existing = updates["company"].get(field, "")
+                updates["company"][field] = (existing + "\n" + value).strip() if existing else value
 
     # ------------------------------------------------------------------
     # Claude helpers

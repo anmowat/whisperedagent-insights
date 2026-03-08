@@ -28,6 +28,9 @@ class ConversationState:
     role_record_id: Optional[str] = None
     role_title: Optional[str] = None
 
+    # Suggested field updates accumulated from the conversation (not written to Airtable)
+    suggested_updates: dict = field(default_factory=dict)
+
     # Full message history for Claude
     messages: list = field(default_factory=list)
 
