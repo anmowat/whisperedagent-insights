@@ -399,10 +399,23 @@ class InsightsAgent:
         updates["role_name"] = role_name
         updates["company_name"] = company_name
 
+        # Fetch current Airtable field values so the merge baseline includes
+        # any information already stored in the database (not just prior
+        # suggested_updates accumulated this session).
+        airtable_role_fields: dict = {}
+        airtable_company_fields: dict = {}
+        if state.role_record_id:
+            role_rec = self.db.find_role_by_id(state.role_record_id)
+            airtable_role_fields = (role_rec or {}).get("fields", {})
+        if state.company_record_id:
+            co_rec = self.db.get_company(state.company_record_id)
+            airtable_company_fields = (co_rec or {}).get("fields", {})
+
         for field, value in (extracted.get("role") or {}).items():
             if value:
                 if field == "Notes":
-                    existing = updates["role"].get("Notes", "")
+                    # Prefer already-merged suggested value; fall back to Airtable
+                    existing = updates["role"].get("Notes") or airtable_role_fields.get("Notes", "")
                     merged = self._structured_merge("role_notes", existing, value)
                     updates["role"]["Notes"] = merged
                 else:
@@ -412,7 +425,11 @@ class InsightsAgent:
         for field, value in (extracted.get("company") or {}).items():
             if value:
                 if field == "Confidential Notes":
-                    existing = updates["company"].get("Confidential Notes", "")
+                    # Prefer already-merged suggested value; fall back to Airtable
+                    existing = (
+                        updates["company"].get("Confidential Notes")
+                        or airtable_company_fields.get("Confidential Notes", "")
+                    )
                     merged = self._structured_merge("company_notes", existing, value)
                     updates["company"]["Confidential Notes"] = merged
                 else:
