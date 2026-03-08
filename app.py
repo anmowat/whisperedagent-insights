@@ -47,7 +47,7 @@ def _get_body():
     user_id = data.get("user_id", "").strip()
     user_name = data.get("user_name", user_id).strip()
     mode = data.get("mode", "premium").strip().lower()
-    if mode not in ("premium", "basic"):
+    if mode not in ("free", "pro", "premium"):
         mode = "premium"
     return data, user_id, user_name, mode
 

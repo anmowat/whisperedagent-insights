@@ -19,7 +19,7 @@ class Phase(Enum):
 class ConversationState:
     user_id: str
     user_name: str = ""
-    mode: str = "premium"    # "premium" or "basic"
+    mode: str = "premium"    # "free", "pro", or "premium"
 
     phase: Phase = Phase.IDENTIFY
 

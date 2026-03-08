@@ -1,17 +1,17 @@
 """
 Prompt builders for the Insights agent synopsis generation.
+
+mode values:
+  "free"    – public info only; no confidential notes, no insights
+  "pro"     – full info minus contributor attribution; insights anonymised
+  "premium" – full info including who contributed each insight
 """
 
 
-def build_company_synopsis_prompt(company: dict, roles: list, insights: list) -> str:
+def build_company_synopsis_prompt(company: dict, roles: list, insights: list, mode: str = "premium") -> str:
     """
     Build a prompt that instructs Claude to produce a concise, useful synopsis
     of a company for a job-seeker in the community.
-
-    Args:
-        company:  Airtable company record (fields dict)
-        roles:    List of Airtable role records linked to the company
-        insights: List of community-contributed insight records
     """
     fields = company.get("fields", {})
 
@@ -24,11 +24,14 @@ Description:
 HG6M (High-Growth 6-Month Outlook):
 {fields.get('HG6M', 'Not available.')}
 
-Confidential Notes (internal only – do NOT share verbatim, summarize tastefully):
-{fields.get('Confidential Notes', 'None.')}
-
 Number of Employees: {fields.get('Employees', 'Unknown')}
 """.strip()
+
+    # Confidential notes: pro and premium only
+    if mode in ("pro", "premium"):
+        conf = fields.get('Confidential Notes', '').strip()
+        if conf:
+            company_section += f"\n\nConfidential Notes (internal only – do NOT share verbatim, summarise tastefully):\n{conf}"
 
     roles_section = ""
     if roles:
@@ -46,38 +49,71 @@ Number of Employees: {fields.get('Employees', 'Unknown')}
     else:
         roles_section = "OPEN ROLES: No open roles currently tracked."
 
+    # Insights: excluded for free; anonymised for pro; attributed for premium
     insights_section = ""
-    if insights:
-        insight_lines = []
-        for i in insights:
-            fi = i.get("fields", {})
-            insight_lines.append(
+    if mode == "free":
+        insights_section = ""
+    elif mode == "pro":
+        if insights:
+            lines = [
                 f"- [{fi.get('Timestamp', '')}] {fi.get('Content', '')}"
+                for i in insights
+                for fi in [i.get("fields", {})]
+            ]
+            insights_section = (
+                "COMMUNITY INSIGHTS (do NOT attribute to specific contributors):\n"
+                + "\n".join(lines)
             )
-        insights_section = "COMMUNITY INSIGHTS:\n" + "\n".join(insight_lines)
+        else:
+            insights_section = "COMMUNITY INSIGHTS: No community insights yet."
+    else:  # premium
+        if insights:
+            lines = [
+                f"- [{fi.get('Timestamp', '')}] {fi.get('Content', '')} — shared by {fi.get('Contributor', 'anonymous')}"
+                for i in insights
+                for fi in [i.get("fields", {})]
+            ]
+            insights_section = "COMMUNITY INSIGHTS:\n" + "\n".join(lines)
+        else:
+            insights_section = "COMMUNITY INSIGHTS: No community insights yet."
+
+    # Mode-specific instruction for Claude
+    if mode == "free":
+        mode_instruction = (
+            "IMPORTANT: This is a Free-tier response. Share only public information "
+            "(description, headcount, open role titles). Do NOT mention confidential notes "
+            "or community insights."
+        )
+    elif mode == "pro":
+        mode_instruction = (
+            "IMPORTANT: This is a Pro-tier response. You may reference community insights "
+            "but do NOT name or attribute them to specific contributors."
+        )
     else:
-        insights_section = "COMMUNITY INSIGHTS: No community insights yet."
+        mode_instruction = ""
+
+    sections = [company_section, roles_section]
+    if insights_section:
+        sections.append(insights_section)
+
+    body = "\n\n".join(sections)
 
     return f"""You are an Insights agent helping members of a professional community learn about companies they are interested in or interviewing with.
 
-Below is the data we have on file for this company. Your job is to generate a friendly, helpful synopsis that:
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}Below is the data we have on file for this company. Your job is to generate a friendly, helpful synopsis that:
 1. Highlights what makes this company interesting or noteworthy.
 2. Mentions the open roles and what we know about them.
 3. Summarizes community insights without exposing raw confidential notes – use your judgment to share relevant context diplomatically.
 4. Keeps it concise (under 300 words) and conversational – like a knowledgeable friend briefing you before a coffee chat.
 
 ---
-{company_section}
-
-{roles_section}
-
-{insights_section}
+{body}
 ---
 
 Please write the synopsis now."""
 
 
-def build_role_synopsis_prompt(role: dict, company: dict, insights: list) -> str:
+def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium") -> str:
     """
     Build a prompt for a role-specific synopsis when the user is focused on a particular position.
     """
@@ -93,31 +129,63 @@ How to Find / Apply: {rf.get('Find', 'Unknown')}
 Notes: {rf.get('Notes', 'None.')}
 """.strip()
 
-    insights_section = ""
-    if insights:
-        lines = [f"- [{i.get('fields', {}).get('Timestamp', '')}] {i.get('fields', {}).get('Content', '')}" for i in insights]
-        insights_section = "COMMUNITY INSIGHTS ON THIS ROLE:\n" + "\n".join(lines)
-    else:
-        insights_section = "COMMUNITY INSIGHTS ON THIS ROLE: No insights yet – you could be the first!"
+    # Insights: excluded for free; anonymised for pro; attributed for premium
+    if mode == "free":
+        insights_section = ""
+    elif mode == "pro":
+        if insights:
+            lines = [
+                f"- [{i.get('fields', {}).get('Timestamp', '')}] {i.get('fields', {}).get('Content', '')}"
+                for i in insights
+            ]
+            insights_section = (
+                "COMMUNITY INSIGHTS ON THIS ROLE (do NOT attribute to specific contributors):\n"
+                + "\n".join(lines)
+            )
+        else:
+            insights_section = "COMMUNITY INSIGHTS ON THIS ROLE: No insights yet – you could be the first!"
+    else:  # premium
+        if insights:
+            lines = [
+                f"- [{i.get('fields', {}).get('Timestamp', '')}] {i.get('fields', {}).get('Content', '')} "
+                f"— shared by {i.get('fields', {}).get('Contributor', 'anonymous')}"
+                for i in insights
+            ]
+            insights_section = "COMMUNITY INSIGHTS ON THIS ROLE:\n" + "\n".join(lines)
+        else:
+            insights_section = "COMMUNITY INSIGHTS ON THIS ROLE: No insights yet – you could be the first!"
 
     company_context = f"""
 Company Description: {cf.get('Description', 'N/A')}
 HG6M Outlook: {cf.get('HG6M', 'N/A')}
 """.strip()
 
+    if mode == "free":
+        mode_instruction = (
+            "IMPORTANT: This is a Free-tier response. Do NOT share insights or confidential details."
+        )
+    elif mode == "pro":
+        mode_instruction = (
+            "IMPORTANT: This is a Pro-tier response. Do NOT name or attribute insights to specific contributors."
+        )
+    else:
+        mode_instruction = ""
+
+    sections = [role_section, company_context]
+    if insights_section:
+        sections.append(insights_section)
+
+    body = "\n\n".join(sections)
+
     return f"""You are an Insights agent helping a community member learn about a specific job role.
 
-Below is everything we know. Write a friendly, concise (under 200 words) briefing covering:
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}Below is everything we know. Write a friendly, concise (under 200 words) briefing covering:
 1. What we know about the role and the hiring process.
 2. Community insights that might help them prepare or decide.
 3. Any gaps in our knowledge they could help fill in.
 
 ---
-{role_section}
-
-{company_context}
-
-{insights_section}
+{body}
 ---
 
 Please write the role briefing now."""
@@ -135,12 +203,12 @@ def build_info_collection_prompt(entity_type: str, entity_name: str, existing_fi
             "Description": "a general description of what the company does",
             "HG6M": "their growth outlook / momentum over the next 6 months",
             "Employees": "approximate headcount",
-            "ConfidentialNotes": "any insider intel or confidential context",
+            "Confidential Notes": "any insider intel or confidential context",
         }
     else:  # role
         desired = {
-            "HiringManager": "who the hiring manager is",
-            "Location": "where the role is based (remote/hybrid/on-site, city)",
+            "HM Name": "who the hiring manager is",
+            "HQ Location": "where the role is based (remote/hybrid/on-site, city)",
             "Find": "how to find or apply for the role",
             "Notes": "any other notes about the role or interview process",
         }

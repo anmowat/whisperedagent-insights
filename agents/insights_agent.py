@@ -1,9 +1,20 @@
 """
-Insights Agent – core conversation logic (read-only mode).
+Insights Agent – core conversation logic.
 
-Premium mode: immediately share synopsis when company/role is identified.
-Basic mode: ask user what they know first; only share synopsis after they
-            provide information that matches a company/role in the database.
+Tier behaviour
+──────────────
+Premium  Immediately share full synopsis (including who contributed insights)
+         after confirmation.  If role/company not found, ask for info.
+
+Pro      Ask user to share what they know first (AWAITING_SHARE), then reveal
+         full synopsis minus contributor attribution.
+         If not found, ask for info.
+
+Free     Roles:     Ask user to share first; after they share, confirm we have
+                    the role but share no details; ask questions; mention upgrade.
+         Companies: Immediately share public info (no confidential notes, no
+                    insights); then ask follow-up questions.
+         If not found, ask for info.
 """
 
 import json
@@ -42,18 +53,26 @@ class InsightsAgent:
     def start_conversation(self, user_id: str, user_name: str, mode: str = "premium") -> str:
         state = self.state_manager.reset(user_id, user_name, mode)
 
-        if mode == "basic":
+        if mode == "free":
             greeting = (
                 f"Hey {user_name}! I'm the Insights agent.\n\n"
-                "Tell me about a company or role you've been in conversations with or interviewing at, "
-                "and share what you've learned so far. "
-                "If it matches something in our database, I'll pull up everything else we know."
+                "Ask me about any company or role you're exploring and I'll share what public information we have. "
+                "The more you share with me, the more our community learns together.\n\n"
+                "Upgrade to Pro to unlock full community insights."
             )
-        else:
+        elif mode == "pro":
             greeting = (
                 f"Hey {user_name}! I'm the Insights agent.\n\n"
-                "Tell me which company or role you want to know about and I'll pull up everything we have on it.\n\n"
-                "For example: \"Airtable\" or \"RevOps Manager at Salesforce\"."
+                "Tell me about a company or role you're exploring and share what you've learned. "
+                "If it matches our database I'll pull up everything we know — "
+                "and your insights help everyone in the community."
+            )
+        else:  # premium
+            greeting = (
+                f"Hey {user_name}! I'm the Insights agent.\n\n"
+                "Tell me which company or role you want to know about and I'll pull up everything we have, "
+                "including community insights and who contributed them.\n\n"
+                "For example: \"Airtable\" or \"VP of RevOps at Airtable\"."
             )
 
         state.add_assistant_message(greeting)
@@ -103,16 +122,12 @@ class InsightsAgent:
 
         if role_title and company_name:
             role_record, company_record = self.db.find_role_for_company(role_title, company_name)
-
         elif role_title:
             role_record = self.db.find_role(role_title)
-
         elif company_name:
             company_record = self.db.find_company(company_name)
 
-        # If we have a role but no company, resolve company from the role's own linked field.
-        # Only do this when company_record is still None — never overwrite a company that came
-        # from the same search as the role (no mixing records from different lookups).
+        # If we have a role but no company, resolve company from the role's linked field.
         if role_record and not company_record:
             linked = role_record["fields"].get("Company", [])
             if linked:
@@ -122,14 +137,14 @@ class InsightsAgent:
             entity = company_name or role_title
             return (
                 f"I don't have \"{entity}\" in our database yet. "
-                "Try a slightly different name, or ask about a different company or role."
+                "Tell me what you know about it and I'll add it — "
+                "what's the company, the role, and anything you've learned from your conversations?"
             )
 
         if company_record:
             state.company_record_id = company_record["id"]
             state.company_name = company_record["fields"].get("Company Name", company_name)
         elif company_name:
-            # No company record resolved but store user-supplied name for display
             state.company_name = company_name
 
         if role_record:
@@ -171,7 +186,7 @@ class InsightsAgent:
             )
 
         if not affirmative:
-            # Looks like a new query — restart identify
+            # Treat as a new query
             state.phase = Phase.IDENTIFY
             state.company_record_id = None
             state.company_name = None
@@ -179,51 +194,97 @@ class InsightsAgent:
             state.role_title = None
             return self._handle_identify(state, user_text)
 
-        # Confirmed — branch on mode
-        if state.mode == "basic":
-            entity = state.role_title or state.company_name
-            state.phase = Phase.AWAITING_SHARE
-            return (
-                f"Great! Before I share what we know about {entity}, "
-                "what have you already learned from your conversations or research?"
-            )
+        # ── Confirmed — branch by tier ─────────────────────────────────────
+        mode = state.mode
+        entity = state.role_title or state.company_name
 
-        # Re-run the same lookup that produced the confirmation to get a fresh,
-        # consistent role+company pair — never rely on stored IDs that could be stale
-        # or mismatched between separate lookups.
+        # FREE + company: immediately share public synopsis, then follow-up
+        if mode == "free" and not state.role_record_id:
+            co_rec = self.db.get_company(state.company_record_id)
+            state.phase = Phase.COMPANY_FOUND
+            return self._generate_company_synopsis(co_rec, mode="free")
+
+        # FREE + role  | PRO (any): go to AWAITING_SHARE
+        if mode in ("free", "pro"):
+            state.phase = Phase.AWAITING_SHARE
+            if mode == "free":
+                return (
+                    f"Tell me what you already know about \"{entity}\" from your research or conversations. "
+                    "Share what you've learned and I'll let you know what we have."
+                )
+            else:  # pro
+                return (
+                    f"Great! Before I pull up what we have on {entity}, "
+                    "what have you already learned from your conversations or research? "
+                    "Your insights help the whole community."
+                )
+
+        # PREMIUM: immediately reveal full synopsis
         if state.role_title and state.company_name:
             role_rec, co_rec = self.db.find_role_for_company(state.role_title, state.company_name)
             if role_rec:
                 state.role_record_id = role_rec["id"]
                 state.company_record_id = co_rec["id"] if co_rec else state.company_record_id
                 state.phase = Phase.ROLE_FOUND
-                return self._generate_role_synopsis(co_rec, role_rec)
+                return self._generate_role_synopsis(co_rec, role_rec, mode="premium")
 
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
             co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
             state.phase = Phase.ROLE_FOUND
-            return self._generate_role_synopsis(co_rec, role_rec)
+            return self._generate_role_synopsis(co_rec, role_rec, mode="premium")
 
         co_rec = self.db.get_company(state.company_record_id)
         state.phase = Phase.COMPANY_FOUND
-        return self._generate_company_synopsis(co_rec, None)
+        return self._generate_company_synopsis(co_rec, mode="premium")
 
     def _handle_awaiting_share(self, state: ConversationState, user_text: str) -> str:
-        """Basic mode: user has shared what they know – now reveal the synopsis."""
-        # Generate synopsis and combine with acknowledgement of what they shared
+        """User has shared what they know — respond based on tier."""
+        mode = state.mode
+        entity = state.role_title or state.company_name or "this"
+
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
-            company_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
-            synopsis = self._generate_role_synopsis(company_rec, role_rec) if role_rec else ""
+            co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
+
+            if mode == "free":
+                # Confirm we have it; don't reveal details; ask questions; mention upgrade
+                state.phase = Phase.ROLE_FOUND
+                ack_prompt = (
+                    f"The user shared this about {entity}: \"{user_text}\"\n\n"
+                    "1. Warmly acknowledge their contribution in 1 sentence.\n"
+                    "2. Confirm that we do have this role in our database.\n"
+                    "3. Do NOT reveal any details we have about the role.\n"
+                    "4. Ask 1-2 specific questions to gather more useful information for the community.\n"
+                    "5. Briefly mention that upgrading to Pro lets them see everything we know.\n"
+                    "Keep it short, friendly, and conversational. No markdown."
+                )
+                return self._call_claude([{"role": "user", "content": ack_prompt}])
+
+            # Pro or Premium: show role synopsis then acknowledge
+            synopsis = self._generate_role_synopsis(co_rec, role_rec, mode=mode) if role_rec else ""
             state.phase = Phase.ROLE_FOUND
+
         else:
-            company_rec = self.db.get_company(state.company_record_id)
-            synopsis = self._generate_company_synopsis(company_rec, None) if company_rec else ""
+            co_rec = self.db.get_company(state.company_record_id)
+
+            if mode == "free":
+                # Public synopsis already shown — now ask for supplemental confidential info
+                state.phase = Phase.COMPANY_FOUND
+                ack_prompt = (
+                    f"The user shared this about {entity}: \"{user_text}\"\n\n"
+                    "1. Warmly thank them for the insight in 1 sentence.\n"
+                    "2. Ask 1-2 focused follow-up questions to gather insider information "
+                    "(e.g. culture, interview process, hiring manager, recent news).\n"
+                    "Keep it short and friendly. No markdown."
+                )
+                return self._call_claude([{"role": "user", "content": ack_prompt}])
+
+            synopsis = self._generate_company_synopsis(co_rec, mode=mode) if co_rec else ""
             state.phase = Phase.COMPANY_FOUND
 
         ack_prompt = (
-            f"The user just shared this about {state.role_title or state.company_name}: \"{user_text}\"\n\n"
+            f"The user just shared this about {entity}: \"{user_text}\"\n\n"
             "Acknowledge what they shared in 1-2 sentences (be genuinely appreciative and specific), "
             "then transition naturally into the synopsis below. "
             "Do not use markdown formatting.\n\n"
@@ -235,7 +296,6 @@ class InsightsAgent:
         """Answer follow-up questions using full conversation history."""
         parsed = self._parse_company_and_role(user_text)
         new_company = parsed.get("company")
-        # If they're clearly asking about a different company, start over
         if new_company and new_company.lower() != (state.company_name or "").lower():
             state.phase = Phase.IDENTIFY
             state.company_record_id = None
@@ -250,14 +310,14 @@ class InsightsAgent:
     # Synopsis generators
     # ------------------------------------------------------------------
 
-    def _generate_company_synopsis(self, company_record: dict, _role_hint=None) -> str:
+    def _generate_company_synopsis(self, company_record: dict, mode: str = "premium") -> str:
         roles = self.db.get_company_roles(company_record["id"])
-        prompt = build_company_synopsis_prompt(company_record, roles, [])
+        prompt = build_company_synopsis_prompt(company_record, roles, [], mode=mode)
         synopsis = self._call_claude([{"role": "user", "content": prompt}])
         return synopsis + "\n\nWhat would you like to know more about? You can ask me anything or look up a specific role."
 
-    def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict) -> str:
-        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [])
+    def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict, mode: str = "premium") -> str:
+        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode)
         synopsis = self._call_claude([{"role": "user", "content": prompt}])
         return synopsis + "\n\nAnything else you'd like to know about this role or company?"
 
