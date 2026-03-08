@@ -103,6 +103,8 @@ class InsightsAgent:
             reply = self._handle_identify(state, user_text)
         elif state.phase == Phase.CONFIRMING:
             reply = self._handle_confirming(state, user_text)
+        elif state.phase == Phase.DISAMBIGUATING:
+            reply = self._handle_disambiguating(state, user_text)
         elif state.phase == Phase.AWAITING_SHARE:
             reply = self._handle_awaiting_share(state, user_text)
         elif state.phase in (Phase.COMPANY_FOUND, Phase.ROLE_FOUND):
@@ -151,7 +153,12 @@ class InsightsAgent:
         if not role_record and company_record and role_title:
             company_roles = self.db.get_company_roles(company_record["id"])
             if company_roles:
-                role_record = self._semantic_role_match(role_title, company_roles)
+                matches = self._semantic_role_match(role_title, company_roles)
+                if len(matches) == 1:
+                    role_record = matches[0]
+                elif len(matches) > 1:
+                    # Multiple plausible matches — ask the user to pick one.
+                    return self._ask_disambiguate(state, company_record, matches)
 
         if not role_record and not company_record:
             entity = company_name or role_title
@@ -184,6 +191,100 @@ class InsightsAgent:
 
     def _handle_confirming(self, state: ConversationState, user_text: str) -> str:
         """Legacy phase handler — state should no longer enter CONFIRMING in normal flow."""
+        return self._dispatch_after_match(state, user_text)
+
+    # ------------------------------------------------------------------
+    # Disambiguation helpers
+    # ------------------------------------------------------------------
+
+    def _ask_disambiguate(
+        self, state: ConversationState, company_record: dict, candidates: list[dict]
+    ) -> str:
+        """
+        Store candidate role IDs in state, set DISAMBIGUATING phase, and return a
+        numbered question asking the user which role they meant.
+        """
+        state.company_record_id = company_record["id"]
+        state.company_name = company_record["fields"].get("Company Name", "")
+        raw_domain = company_record["fields"].get("Domain") or ""
+        state.company_domain = self._ensure_https(raw_domain.strip())
+        state.candidate_role_ids = [r["id"] for r in candidates]
+        state.phase = Phase.DISAMBIGUATING
+
+        co_ref = self._company_ref(state)
+        lines = []
+        for i, r in enumerate(candidates, 1):
+            rf = r.get("fields", {})
+            title = rf.get("Title", "Untitled")
+            fn = rf.get("Function", "")
+            line = f"{i}. **{title}**" + (f" ({fn})" if fn else "")
+            lines.append(line)
+
+        return (
+            f"I found a couple of roles at {co_ref} that could be a match — "
+            f"**which of these did you mean?**\n\n"
+            + "\n".join(lines)
+        )
+
+    def _handle_disambiguating(self, state: ConversationState, user_text: str) -> str:
+        """
+        User has replied to the disambiguation question. Ask Claude which candidate
+        they picked, then proceed as if that role was matched directly.
+        """
+        candidates = [
+            self.db.find_role_by_id(rid)
+            for rid in state.candidate_role_ids
+            if rid
+        ]
+        candidates = [r for r in candidates if r]
+
+        if not candidates:
+            # Candidates expired — restart
+            state.phase = Phase.IDENTIFY
+            state.candidate_role_ids = []
+            return self._handle_identify(state, user_text)
+
+        # Build a summary list so Claude can resolve the user's selection
+        summaries = []
+        for i, r in enumerate(candidates, 1):
+            rf = r.get("fields", {})
+            summaries.append(f"{i}: {rf.get('Title', 'Untitled')}")
+
+        prompt = (
+            f'The user was asked to pick from these roles:\n'
+            + "\n".join(summaries)
+            + f'\n\nTheir reply: "{user_text}"\n\n'
+            f'Which number did they pick? Return just the integer (1-based), '
+            f'or null if unclear. Valid JSON only.'
+        )
+        chosen = None
+        try:
+            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=8)
+            cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            idx = json.loads(cleaned)
+            if isinstance(idx, int) and 1 <= idx <= len(candidates):
+                chosen = candidates[idx - 1]
+        except Exception:
+            logger.debug("_handle_disambiguating parse failed for %r", user_text)
+
+        if not chosen:
+            # Couldn't parse — re-ask
+            co_ref = self._company_ref(state)
+            lines = [
+                f"{i}. **{r['fields'].get('Title', 'Untitled')}**"
+                for i, r in enumerate(candidates, 1)
+            ]
+            return (
+                "Sorry, I didn't catch which one — "
+                f"**could you pick a number or name from the list?**\n\n"
+                + "\n".join(lines)
+            )
+
+        # Got a clear choice — proceed exactly as if the role was found directly
+        state.candidate_role_ids = []
+        state.role_record_id = chosen["id"]
+        state.role_title = chosen["fields"].get("Title", "")
+        state.role_app_page = (chosen["fields"].get("App Page") or "").strip()
         return self._dispatch_after_match(state, user_text)
 
     def _dispatch_after_match(self, state: ConversationState, user_text: str) -> str:
@@ -608,10 +709,13 @@ class InsightsAgent:
             logger.debug("_map_location_to_picklist failed for %r", location_text)
         return []
 
-    def _semantic_role_match(self, role_query: str, roles: list[dict]) -> Optional[dict]:
+    def _semantic_role_match(self, role_query: str, roles: list[dict]) -> list[dict]:
         """
-        Ask Claude which role in *roles* best matches *role_query* using semantic understanding
-        (e.g. "RevOps" → "Director of GTM Strategy/Ops"). Returns the matched role record or None.
+        Ask Claude which role(s) in *roles* best match *role_query* using semantic understanding
+        (e.g. "RevOps" → "Director of GTM Strategy/Ops" and/or "Head of GTM AI").
+
+        Returns a list of matching role records (0 = no match, 1 = confident single match,
+        2+ = multiple plausible matches that need user disambiguation).
         """
         summaries = []
         for i, r in enumerate(roles):
@@ -629,22 +733,26 @@ class InsightsAgent:
         prompt = (
             f'A user is looking for: "{role_query}"\n\n'
             f'Available roles:\n' + "\n".join(summaries) + "\n\n"
-            f'Which index best matches? Consider synonyms and related terms '
-            f'(e.g. "RevOps" matches "GTM Strategy/Ops" or "Revenue Operations"). '
-            f'Return just the integer index if confident, or null if no good match. '
-            f'Valid JSON only — no preamble.'
+            f'Which indices match? Consider synonyms and related terms '
+            f'(e.g. "RevOps" may match "GTM Strategy/Ops", "Revenue Operations", "GTM AI", etc.). '
+            f'Return a JSON array of matching integer indices. '
+            f'Return [] if nothing fits. Valid JSON only — no preamble.'
         )
         try:
-            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=16)
+            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=32)
             cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
             result = json.loads(cleaned)
-            if isinstance(result, int) and 0 <= result < len(roles):
-                matched_title = roles[result]["fields"].get("Title")
-                logger.info("_semantic_role_match: %r → %r", role_query, matched_title)
-                return roles[result]
+            if isinstance(result, list):
+                matched = [roles[i] for i in result if isinstance(i, int) and 0 <= i < len(roles)]
+                logger.info(
+                    "_semantic_role_match: %r → %s",
+                    role_query,
+                    [r["fields"].get("Title") for r in matched],
+                )
+                return matched
         except Exception:
             logger.debug("_semantic_role_match failed for %r", role_query)
-        return None
+        return []
 
     def _premium_role_not_found_response(
         self, state: ConversationState, company_record: dict, role_query: str
