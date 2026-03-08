@@ -32,6 +32,7 @@ from prompts.data_collection import (
     build_data_extraction_prompt,
     build_gap_question_prompt,
     build_structured_merge_prompt,
+    build_simple_field_merge_prompt,
     get_role_gaps,
     get_company_gaps,
 )
@@ -541,9 +542,9 @@ class InsightsAgent:
                 merged = self._structured_merge("role_notes", existing, value)
                 updates["role"]["Notes"] = merged
             else:
-                # Prefer already-merged session value; fall back to Airtable — never discard existing info
+                # Prefer already-merged session value; fall back to Airtable — synthesize, never just concat
                 existing = str(updates["role"].get(field) or airtable_role_fields.get(field) or "")
-                updates["role"][field] = (existing + "\n" + value).strip() if existing else value
+                updates["role"][field] = self._simple_merge(field, existing, value) if existing else value
 
         for field, value in (extracted.get("company") or {}).items():
             if value:
@@ -556,9 +557,28 @@ class InsightsAgent:
                     merged = self._structured_merge("company_notes", existing, value)
                     updates["company"]["Confidential Notes"] = merged
                 else:
-                    # Prefer already-merged session value; fall back to Airtable — never discard existing info
+                    # Prefer already-merged session value; fall back to Airtable — synthesize, never just concat
                     existing = str(updates["company"].get(field) or airtable_company_fields.get(field) or "")
-                    updates["company"][field] = (existing + "\n" + value).strip() if existing else value
+                    updates["company"][field] = self._simple_merge(field, existing, value) if existing else value
+
+    def _simple_merge(self, field_name: str, existing: str, new_info: str) -> str:
+        """
+        Synthesize *new_info* into *existing* for a plain text field, preserving all unique
+        facts while eliminating redundancy. Falls back to concatenation on failure.
+        """
+        if not existing:
+            return new_info
+        prompt = build_simple_field_merge_prompt(field_name, existing, new_info)
+        try:
+            result = self._call_claude(
+                [{"role": "user", "content": prompt}],
+                max_tokens=256,
+                system="You are a concise database editor. Follow instructions exactly.",
+            )
+            return result.strip()
+        except Exception:
+            logger.debug("simple merge failed for field %r; falling back to concat", field_name)
+            return (existing + "; " + new_info).strip()
 
     def _structured_merge(self, schema_type: str, existing: str, new_info: str) -> str:
         """

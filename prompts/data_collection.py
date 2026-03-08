@@ -193,6 +193,33 @@ Instructions:
 - Return ONLY the merged field content — no preamble, no JSON, no markdown fences."""
 
 
+def build_simple_field_merge_prompt(field_name: str, existing: str, new_info: str) -> str:
+    """
+    Return a prompt that asks Claude to synthesize *new_info* into *existing*
+    for a plain text field, preserving all information without duplication.
+    """
+    existing_block = existing.strip() if existing else "(empty)"
+    return f"""You are updating the "{field_name}" field in a recruiting database.
+
+EXISTING VALUE:
+---
+{existing_block}
+---
+
+NEW INFORMATION TO INCORPORATE:
+---
+{new_info.strip()}
+---
+
+Instructions:
+- Write a single concise sentence or phrase that captures ALL the information from both.
+- NEVER remove any unique facts from the existing value.
+- Eliminate redundancy: if the new information is already expressed in the existing value
+  (even partially or in different words), do not repeat it — just keep the best phrasing.
+- If the new information contradicts the existing value, keep both with a note (e.g. "X or Y").
+- Return ONLY the merged value — no preamble, no labels, no quotes, no markdown."""
+
+
 # ── Follow-up question prompt ─────────────────────────────────────────────────
 
 def build_gap_question_prompt(role_name: str, company_name: str,
