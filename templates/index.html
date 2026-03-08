@@ -200,13 +200,9 @@
       background: #fff;
       border-radius: 12px;
       box-shadow: 0 4px 24px rgba(0,0,0,0.10);
-      display: none;           /* hidden until first update arrives */
+      display: flex;
       flex-direction: column;
       overflow: hidden;
-    }
-
-    #updates-panel.visible {
-      display: flex;
     }
 
     #updates-header {
@@ -254,30 +250,31 @@
       border-bottom: 1px solid #f3f4f6;
     }
 
-    /* Individual field row */
+    /* Empty state */
+    .updates-empty {
+      font-size: 12px;
+      color: #9ca3af;
+      font-style: italic;
+      text-align: center;
+      margin-top: 24px;
+      line-height: 1.6;
+      padding: 0 8px;
+    }
+
+    /* Individual field row: "Object - Field — value" */
     .update-field {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-    }
-
-    .update-field-label {
-      font-size: 10px;
-      font-weight: 600;
-      color: #6b7280;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .update-field-value {
       font-size: 12px;
       color: #1a1a2e;
-      line-height: 1.5;
+      line-height: 1.6;
       background: #f9fafb;
       border: 1px solid #e5e7eb;
       border-radius: 6px;
-      padding: 6px 8px;
+      padding: 7px 10px;
       word-break: break-word;
+    }
+
+    .update-field-key {
+      font-weight: 700;
     }
 
     /* ── Name modal ── */
@@ -434,6 +431,9 @@
     startConversation();
   });
 
+  // Show empty state immediately so panel is never blank
+  showEmptyState();
+
   // ── Name modal ────────────────────────────────────────────────────────────
   if (userName) {
     modal.classList.add("hidden");
@@ -470,76 +470,56 @@
 
   function clearUpdatesPanel() {
     updatesBody.innerHTML = "";
-    updatesPanel.classList.remove("visible");
+    showEmptyState();
   }
 
+  function showEmptyState() {
+    updatesBody.innerHTML = "";
+    const empty = document.createElement("div");
+    empty.className = "updates-empty";
+    empty.textContent = "Suggested updates will appear here as the conversation collects new information.";
+    updatesBody.appendChild(empty);
+  }
+
+  // Render each update as "Object - Field Name — value" with object+field bolded
   function renderUpdatesPanel(updates) {
     if (!updates || typeof updates !== "object") return;
 
-    const roleName    = updates.role_name    || null;
-    const companyName = updates.company_name || null;
-    const roleFields  = updates.role    || {};
+    const roleName      = updates.role_name    || "Role";
+    const companyName   = updates.company_name || "Company";
+    const roleFields    = updates.role    || {};
     const companyFields = updates.company || {};
 
-    // Check if there's anything to show
     const hasRole    = Object.values(roleFields).some(Boolean);
     const hasCompany = Object.values(companyFields).some(Boolean);
     if (!hasRole && !hasCompany) return;
 
     updatesBody.innerHTML = "";
-    updatesPanel.classList.add("visible");
 
-    if (hasRole) {
-      const section = document.createElement("div");
-      section.className = "update-section";
-
-      const title = document.createElement("div");
-      title.className = "update-section-title";
-      title.textContent = roleName ? `Role — ${roleName}` : "Role";
-      section.appendChild(title);
-
-      for (const [field, label] of Object.entries(ROLE_FIELD_LABELS)) {
-        const value = roleFields[field];
-        if (!value) continue;
-        section.appendChild(makeFieldRow(label, value));
-      }
-
-      updatesBody.appendChild(section);
+    for (const [field, label] of Object.entries(ROLE_FIELD_LABELS)) {
+      const value = roleFields[field];
+      if (!value) continue;
+      updatesBody.appendChild(makeFieldRow(roleName, label, value));
     }
 
-    if (hasCompany) {
-      const section = document.createElement("div");
-      section.className = "update-section";
-
-      const title = document.createElement("div");
-      title.className = "update-section-title";
-      title.textContent = companyName ? `Company — ${companyName}` : "Company";
-      section.appendChild(title);
-
-      for (const [field, label] of Object.entries(COMPANY_FIELD_LABELS)) {
-        const value = companyFields[field];
-        if (!value) continue;
-        section.appendChild(makeFieldRow(label, value));
-      }
-
-      updatesBody.appendChild(section);
+    for (const [field, label] of Object.entries(COMPANY_FIELD_LABELS)) {
+      const value = companyFields[field];
+      if (!value) continue;
+      updatesBody.appendChild(makeFieldRow(companyName, label, value));
     }
   }
 
-  function makeFieldRow(label, value) {
+  // "Object - Field Name — value"  (object + field bolded)
+  function makeFieldRow(objectName, fieldLabel, value) {
     const row = document.createElement("div");
     row.className = "update-field";
 
-    const lbl = document.createElement("div");
-    lbl.className = "update-field-label";
-    lbl.textContent = label;
+    const key = document.createElement("span");
+    key.className = "update-field-key";
+    key.textContent = `${objectName} - ${fieldLabel}`;
 
-    const val = document.createElement("div");
-    val.className = "update-field-value";
-    val.textContent = value;
-
-    row.appendChild(lbl);
-    row.appendChild(val);
+    row.appendChild(key);
+    row.appendChild(document.createTextNode(` — ${value}`));
     return row;
   }
 
@@ -578,6 +558,7 @@
   }
 
   async function startConversation() {
+    showEmptyState();
     showTyping();
     try {
       const res = await fetch("/start", {
