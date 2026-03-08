@@ -27,7 +27,7 @@ Company.Confidential Notes  Non-public intel across four topics:
 
 # ── Role gap descriptions (in conversational language for Claude) ─────────────
 
-# Ordered by collection priority: Find → Location → Notes
+# Ordered by collection priority: Find → Location → Notes → Company Confidential Notes → Compensation
 ROLE_GAP_DESCRIPTIONS = {
     "Find": (
         "how to find or reach the hiring manager — the internal sponsor, "
@@ -39,6 +39,11 @@ ROLE_GAP_DESCRIPTIONS = {
         "role details across three areas — Scope (responsibilities and team size); "
         "Criteria (key skills, interview panel, reason for hire); "
         "Details (hiring manager, who the role reports to)"
+    ),
+    # Compensation is lowest priority — only surfaced once everything else is known
+    "Compensation": (
+        "total compensation — only worth asking if the user is deep in the process "
+        "or volunteers it; frame naturally, e.g. asking about the overall package"
     ),
 }
 
