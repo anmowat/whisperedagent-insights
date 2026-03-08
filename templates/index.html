@@ -533,6 +533,10 @@
     div.className = "msg " + role;
     if (role === "agent") {
       div.innerHTML = marked.parse(text);
+      div.querySelectorAll("a").forEach(a => {
+        a.setAttribute("target", "_blank");
+        a.setAttribute("rel", "noopener noreferrer");
+      });
     } else {
       div.textContent = text;
     }
