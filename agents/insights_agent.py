@@ -537,7 +537,8 @@ class InsightsAgent:
                 merged = self._structured_merge("role_notes", existing, value)
                 updates["role"]["Notes"] = merged
             else:
-                existing = str(updates["role"].get(field, "") or "")
+                # Prefer already-merged session value; fall back to Airtable — never discard existing info
+                existing = str(updates["role"].get(field) or airtable_role_fields.get(field) or "")
                 updates["role"][field] = (existing + "\n" + value).strip() if existing else value
 
         for field, value in (extracted.get("company") or {}).items():
@@ -551,7 +552,8 @@ class InsightsAgent:
                     merged = self._structured_merge("company_notes", existing, value)
                     updates["company"]["Confidential Notes"] = merged
                 else:
-                    existing = str(updates["company"].get(field, "") or "")
+                    # Prefer already-merged session value; fall back to Airtable — never discard existing info
+                    existing = str(updates["company"].get(field) or airtable_company_fields.get(field) or "")
                     updates["company"][field] = (existing + "\n" + value).strip() if existing else value
 
     def _structured_merge(self, schema_type: str, existing: str, new_info: str) -> str:

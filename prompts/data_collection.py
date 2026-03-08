@@ -184,8 +184,10 @@ NEW INFORMATION TO MERGE IN:
 Instructions:
 - Produce a clean merged version that follows the schema above exactly.
 - Each line starts with the label in bold (e.g. "Scope & Responsibilities:") followed by the value.
-- Incorporate all new information — do NOT drop details from existing content unless the new info supersedes them.
-- Remove exact duplicates; keep the most specific / recent value when there are conflicts.
+- NEVER remove or summarise away information from existing content — every fact already there must be
+  preserved unless the new information explicitly contradicts it (e.g. a correction).
+- Incorporate all new information from "NEW INFORMATION TO MERGE IN".
+- Remove exact duplicates only; keep the most specific / recent value when there is a direct conflict.
 - If a section has no information at all (existing or new), omit that line entirely — do NOT write "Unknown".
 - Be concise: one line per section unless the content genuinely needs more.
 - Return ONLY the merged field content — no preamble, no JSON, no markdown fences."""
