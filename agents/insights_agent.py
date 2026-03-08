@@ -157,57 +157,36 @@ class InsightsAgent:
         if company_record:
             state.company_record_id = company_record["id"]
             state.company_name = company_record["fields"].get("Company Name", company_name)
+            raw_domain = company_record["fields"].get("Domain") or ""
+            state.company_domain = self._ensure_https(raw_domain.strip())
         elif company_name:
             state.company_name = company_name
 
         if role_record:
             state.role_record_id = role_record["id"]
             state.role_title = role_record["fields"].get("Title", role_title)
+            state.role_app_page = (role_record["fields"].get("App Page") or "").strip()
 
-        state.phase = Phase.CONFIRMING
-
-        if state.role_title and state.company_name:
-            return f"I found \"{state.role_title}\" at {state.company_name} — **is that the one you're asking about?**"
-        elif state.role_title:
-            return f"I found \"{state.role_title}\" — **is that the role you're asking about?**"
-        else:
-            return f"I found {state.company_name} in our database — **is that the company you're asking about?**"
+        # Go straight to the tier-appropriate response — no confirmation step needed.
+        # The hyperlinked company/role name in the response serves as implicit confirmation.
+        return self._dispatch_after_match(state, user_text)
 
     def _handle_confirming(self, state: ConversationState, user_text: str) -> str:
-        low = user_text.lower().strip()
-        words = set(low.split())
-        affirmative = bool(words & {"y", "yes", "yeah", "yep", "yup", "yea", "sure", "ok", "okay", "correct",
-                                    "right", "exactly", "confirm"}) or "that's it" in low or "go ahead" in low
-        negative = bool(words & {"n", "no", "nope", "wrong", "different", "other", "another"}) or "not that" in low
+        """Legacy phase handler — state should no longer enter CONFIRMING in normal flow."""
+        return self._dispatch_after_match(state, user_text)
 
-        if negative:
-            state.phase = Phase.IDENTIFY
-            state.company_record_id = None
-            state.company_name = None
-            state.role_record_id = None
-            state.role_title = None
-            return (
-                "Got it — **could you give me a bit more detail? "
-                "For example the full role title or the exact company name.**"
-            )
-
-        if not affirmative:
-            state.phase = Phase.IDENTIFY
-            state.company_record_id = None
-            state.company_name = None
-            state.role_record_id = None
-            state.role_title = None
-            return self._handle_identify(state, user_text)
-
+    def _dispatch_after_match(self, state: ConversationState, user_text: str) -> str:
+        """
+        Route to the tier-appropriate response immediately after a company/role is matched.
+        Uses the hyperlinked company/role name as implicit confirmation — no round-trip needed.
+        """
         mode = state.mode
-        entity = state.role_title or state.company_name
+        entity_ref = self._role_ref(state) or self._company_ref(state)
 
-        # Check if the original user intent was to list roles at this company
-        prior_user_msgs = [m["content"] for m in state.messages if m["role"] == "user"][:-1]
         roles_list_intent = (
             not state.role_record_id
             and state.company_record_id
-            and any(self._is_roles_list_intent(t) for t in prior_user_msgs)
+            and self._is_roles_list_intent(user_text)
         )
 
         # FREE + company: role-listing intent → confirm existence only; otherwise show public snapshot
@@ -217,15 +196,16 @@ class InsightsAgent:
                 roles = self.db.get_company_roles(state.company_record_id)
                 count = len(roles)
                 noun = "role" if count == 1 else "roles"
+                co_ref = self._company_ref(state)
                 if count:
                     return (
-                        f"We do have {count} {noun} tracked for {state.company_name}, "
+                        f"We do have {count} {noun} tracked for {co_ref}, "
                         "but the details are only available on Pro and above. "
                         "**Upgrade to Pro to see the role titles and hiring details.**"
                     )
-                return f"I don't have any roles tracked for {state.company_name} at the moment."
+                return f"I don't have any roles tracked for {co_ref} at the moment."
             co_rec = self.db.get_company(state.company_record_id)
-            return self._generate_company_synopsis(co_rec, mode="free")
+            return self._generate_company_synopsis(co_rec, mode="free", state=state)
 
         # FREE + role | PRO (any): role-listing intent for pro → confirm existence only; otherwise share-first flow
         if mode in ("free", "pro"):
@@ -234,22 +214,23 @@ class InsightsAgent:
                 roles = self.db.get_company_roles(state.company_record_id)
                 count = len(roles)
                 noun = "role" if count == 1 else "roles"
+                co_ref = self._company_ref(state)
                 if count:
                     return (
-                        f"We do have {count} {noun} tracked for {state.company_name}. "
+                        f"We do have {count} {noun} tracked for {co_ref}. "
                         "**Upgrade to Premium to see the full breakdown with hiring manager and location details — "
                         "or is there a specific role you've already heard about?**"
                     )
-                return f"I don't have any roles tracked for {state.company_name} at the moment."
+                return f"I don't have any roles tracked for {co_ref} at the moment."
             state.phase = Phase.AWAITING_SHARE
             if mode == "free":
                 return (
-                    f"Tell me what you already know about \"{entity}\" from your research or conversations. "
+                    f"Tell me what you already know about {entity_ref} from your research or conversations. "
                     "**Share what you've learned and I'll let you know what we have.**"
                 )
             else:  # pro
                 return (
-                    f"Great — before I pull up what we have on {entity}, "
+                    f"Great — before I pull up what we have on {entity_ref}, "
                     "**what have you already learned from your conversations or research?**"
                 )
 
@@ -258,24 +239,16 @@ class InsightsAgent:
             state.phase = Phase.COMPANY_FOUND
             return self._list_company_roles(state)
 
-        # PREMIUM: role confirmed → show synopsis
-        if state.role_title and state.company_name:
-            role_rec, co_rec = self.db.find_role_for_company(state.role_title, state.company_name)
-            if role_rec:
-                state.role_record_id = role_rec["id"]
-                state.company_record_id = co_rec["id"] if co_rec else state.company_record_id
-                state.phase = Phase.ROLE_FOUND
-                return self._generate_role_synopsis(co_rec, role_rec, mode="premium")
-
+        # PREMIUM: role matched → show synopsis
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
             co_rec = self.db.get_company(state.company_record_id) if state.company_record_id else None
             state.phase = Phase.ROLE_FOUND
-            return self._generate_role_synopsis(co_rec, role_rec, mode="premium")
+            return self._generate_role_synopsis(co_rec, role_rec, mode="premium", state=state)
 
         co_rec = self.db.get_company(state.company_record_id)
         state.phase = Phase.COMPANY_FOUND
-        return self._generate_company_synopsis(co_rec, mode="premium")
+        return self._generate_company_synopsis(co_rec, mode="premium", state=state)
 
     def _handle_awaiting_share(self, state: ConversationState, user_text: str) -> str:
         """User has shared what they know — respond based on tier."""
@@ -302,7 +275,7 @@ class InsightsAgent:
                 )
                 return self._call_claude([{"role": "user", "content": ack_prompt}])
 
-            synopsis = self._generate_role_synopsis(co_rec, role_rec, mode=mode) if role_rec else ""
+            synopsis = self._generate_role_synopsis(co_rec, role_rec, mode=mode, state=state) if role_rec else ""
             state.phase = Phase.ROLE_FOUND
 
         else:
@@ -319,7 +292,7 @@ class InsightsAgent:
                 )
                 return self._call_claude([{"role": "user", "content": ack_prompt}])
 
-            synopsis = self._generate_company_synopsis(co_rec, mode=mode) if co_rec else ""
+            synopsis = self._generate_company_synopsis(co_rec, mode=mode, state=state) if co_rec else ""
             state.phase = Phase.COMPANY_FOUND
 
         ack_prompt = (
@@ -341,18 +314,18 @@ class InsightsAgent:
                 roles = self.db.get_company_roles(state.company_record_id)
                 count = len(roles)
                 noun = "role" if count == 1 else "roles"
-                company = state.company_name or "this company"
+                co_ref = self._company_ref(state)
                 if not count:
-                    return f"I don't have any roles tracked for {company} at the moment."
+                    return f"I don't have any roles tracked for {co_ref} at the moment."
                 if state.mode == "free":
                     return (
-                        f"We do have {count} {noun} tracked for {company}, "
+                        f"We do have {count} {noun} tracked for {co_ref}, "
                         "but the details are only available on Pro and above. "
                         "**Upgrade to Pro to unlock the role titles and hiring details.**"
                     )
                 # pro
                 return (
-                    f"We do have {count} {noun} tracked for {company}. "
+                    f"We do have {count} {noun} tracked for {co_ref}. "
                     "**Upgrade to Premium to see the full breakdown — "
                     "or is there a specific role you've already come across?**"
                 )
@@ -440,6 +413,30 @@ class InsightsAgent:
         return self._call_claude(state.messages, system=system)
 
     # ------------------------------------------------------------------
+    # Link helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _ensure_https(url: str) -> str:
+        if not url:
+            return url
+        return url if url.startswith(("http://", "https://")) else "https://" + url
+
+    def _company_ref(self, state: ConversationState) -> str:
+        """Return a markdown hyperlink for the company, or plain name if no domain."""
+        name = state.company_name or "the company"
+        url = state.company_domain or ""
+        return f"[{name}]({url})" if url else name
+
+    def _role_ref(self, state: ConversationState) -> str:
+        """Return a markdown hyperlink for the role, or plain title if no app page."""
+        title = state.role_title or ""
+        url = state.role_app_page or ""
+        if not title:
+            return ""
+        return f"[{title}]({url})" if url else title
+
+    # ------------------------------------------------------------------
     # Roles listing (premium only)
     # ------------------------------------------------------------------
 
@@ -458,26 +455,33 @@ class InsightsAgent:
         roles = self.db.get_company_roles(state.company_record_id)
         open_roles = [r for r in roles if (r["fields"].get("Status") or "open").lower() != "closed"]
         closed_roles = [r for r in roles if (r["fields"].get("Status") or "").lower() == "closed"]
-        prompt = build_roles_listing_prompt(co_rec or {}, open_roles, closed_roles)
+        company_url = state.company_domain or ""
+        prompt = build_roles_listing_prompt(co_rec or {}, open_roles, closed_roles, company_url=company_url)
         return self._call_claude([{"role": "user", "content": prompt}])
 
     # ------------------------------------------------------------------
     # Synopsis generators
     # ------------------------------------------------------------------
 
-    def _generate_company_synopsis(self, company_record: dict, mode: str = "premium") -> str:
+    def _generate_company_synopsis(self, company_record: dict, mode: str = "premium",
+                                    state: Optional[ConversationState] = None) -> str:
         roles = self.db.get_company_roles(company_record["id"])
-        prompt = build_company_synopsis_prompt(company_record, roles, [], mode=mode)
+        company_url = (state.company_domain or "") if state else ""
+        prompt = build_company_synopsis_prompt(company_record, roles, [], mode=mode, company_url=company_url)
         return self._call_claude([{"role": "user", "content": prompt}])
 
-    def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict, mode: str = "premium") -> str:
+    def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict, mode: str = "premium",
+                                 state: Optional[ConversationState] = None) -> str:
         role_fields = (role_record or {}).get("fields", {})
         company_fields = (company_record or {}).get("fields", {})
         role_gaps = get_role_gaps(role_fields)
         company_gaps = get_company_gaps(company_fields)
         all_gaps = role_gaps + company_gaps
         top_gap = all_gaps[0][1] if all_gaps else None
-        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode, top_gap=top_gap)
+        company_url = (state.company_domain or "") if state else ""
+        role_url = (state.role_app_page or "") if state else ""
+        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode, top_gap=top_gap,
+                                            company_url=company_url, role_url=role_url)
         return self._call_claude([{"role": "user", "content": prompt}])
 
     # ------------------------------------------------------------------

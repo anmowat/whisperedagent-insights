@@ -8,19 +8,22 @@ mode values:
 """
 
 
-def build_company_synopsis_prompt(company: dict, roles: list, insights: list, mode: str = "premium") -> str:
+def build_company_synopsis_prompt(company: dict, roles: list, insights: list, mode: str = "premium",
+                                   company_url: str = "") -> str:
     """
     Build a prompt that instructs Claude to produce a concise, useful synopsis
     of a company for a job-seeker in the community.
     """
     fields = company.get("fields", {})
+    company_name = fields.get('Company Name', 'Unknown')
+    company_ref = f"[{company_name}]({company_url})" if company_url else company_name
 
     investors = fields.get('Investors', '')
     if isinstance(investors, list):
         investors = ', '.join(investors)
 
     company_section = f"""
-COMPANY: {fields.get('Company Name', 'Unknown')}
+COMPANY: {company_name}
 
 Description:
 {fields.get('Description', 'No description on file.')}
@@ -107,9 +110,15 @@ Investors: {investors or 'Unknown'}
 
     body = "\n\n".join(sections)
 
+    link_instruction = (
+        f"Formatting: whenever you mention the company name in your response, "
+        f"write it as the markdown hyperlink {company_ref} — do not write the plain name.\n\n"
+        if company_url else ""
+    )
+
     return f"""You are the Insights agent for a professional community. A member just asked about this company.
 
-{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}DATA ON FILE:
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}{link_instruction}DATA ON FILE:
 ---
 {body}
 ---
@@ -122,16 +131,22 @@ Write a SHORT response (3-4 sentences max) that:
 Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything — leave room for dialogue."""
 
 
-def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium", top_gap: str = None) -> str:
+def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium",
+                               top_gap: str = None, company_url: str = "", role_url: str = "") -> str:
     """
     Build a prompt for a role-specific synopsis when the user is focused on a particular position.
     """
     rf = role.get("fields", {})
     cf = company.get("fields", {}) if company else {}
 
+    role_title = rf.get('Title', 'Unknown')
+    role_ref = f"[{role_title}]({role_url})" if role_url else role_title
+    company_name = cf.get('Company Name', 'Unknown')
+    company_ref = f"[{company_name}]({company_url})" if company_url else company_name
+
     role_section = f"""
-ROLE: {rf.get('Title', 'Unknown')}
-Company: {cf.get('Company Name', 'Unknown')}
+ROLE: {role_title}
+Company: {company_name}
 Hiring Manager: {rf.get('HM Name', 'Unknown')}
 Location: {rf.get('HQ Location') and ', '.join(rf.get('HQ Location')) or cf.get('HQ', 'Unknown')}
 How to Find / Apply: {rf.get('Find', 'Unknown')}
@@ -196,9 +211,20 @@ HG6M Outlook: {cf.get('HG6M', 'N/A')}
     else:
         ending_instruction = "End with ONE natural question asking what they've learned from their own conversations."
 
+    link_parts = []
+    if role_url:
+        link_parts.append(f"the role name as {role_ref}")
+    if company_url:
+        link_parts.append(f"the company name as {company_ref}")
+    link_instruction = (
+        f"Formatting: whenever you mention {' and '.join(link_parts)} in your response, "
+        "use those exact markdown hyperlinks — do not write the plain names.\n\n"
+        if link_parts else ""
+    )
+
     return f"""You are the Insights agent for a professional community. A member just asked about this role.
 
-{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}DATA ON FILE:
+{mode_instruction + chr(10) + chr(10) if mode_instruction else ""}{link_instruction}DATA ON FILE:
 ---
 {body}
 ---
@@ -211,18 +237,22 @@ Write a SHORT response (3-4 sentences max) that:
 Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything at once — the goal is to start a dialogue."""
 
 
-def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: list) -> str:
+def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: list, company_url: str = "") -> str:
     """
     Build a prompt for a premium user asking what roles we have tracked at a company.
     Lists open roles and recently closed ones.
     """
     cf = company.get("fields", {})
     company_name = cf.get("Company Name", "this company")
+    company_ref = f"[{company_name}]({company_url})" if company_url else company_name
 
     def format_role(r):
         rf = r.get("fields", {})
         location = ", ".join(rf.get("HQ Location") or []) or cf.get("HQ", "Unknown")
-        parts = [rf.get("Title", "Untitled")]
+        title = rf.get("Title", "Untitled")
+        app_page = (rf.get("App Page") or "").strip()
+        title_ref = f"[{title}]({app_page})" if app_page else title
+        parts = [title_ref]
         if rf.get("HM Name"):
             parts.append(f"HM: {rf['HM Name']}")
         if location and location != "Unknown":
@@ -236,9 +266,16 @@ def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: li
     open_section = "\n".join(format_role(r) for r in open_roles) if open_roles else "None tracked."
     closed_section = "\n".join(format_role(r) for r in closed_roles) if closed_roles else "None tracked."
 
-    return f"""You are the Insights agent for a professional community. A premium member asked about the roles we have tracked for {company_name}.
+    link_instruction = (
+        f"Formatting: when mentioning the company name use {company_ref}, "
+        "and when listing role titles use the markdown links provided in OPEN ROLES above — "
+        "do not write plain names.\n\n"
+        if company_url else ""
+    )
 
-OPEN ROLES:
+    return f"""You are the Insights agent for a professional community. A premium member asked about the roles we have tracked for {company_ref}.
+
+{link_instruction}OPEN ROLES:
 {open_section}
 
 RECENTLY CLOSED ROLES:

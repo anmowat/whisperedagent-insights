@@ -9,7 +9,7 @@ from typing import Optional
 
 class Phase(Enum):
     IDENTIFY = auto()        # Waiting for user to name a company/role
-    CONFIRMING = auto()      # Showing "is this the role you mean?" before synopsis
+    CONFIRMING = auto()      # Legacy: kept for safety; no longer entered in normal flow
     AWAITING_SHARE = auto()  # Basic mode: waiting for user to share what they know
     COMPANY_FOUND = auto()   # Synopsis shown, answering follow-ups
     ROLE_FOUND = auto()      # Role synopsis shown, answering follow-ups
@@ -25,8 +25,10 @@ class ConversationState:
 
     company_record_id: Optional[str] = None
     company_name: Optional[str] = None
+    company_domain: Optional[str] = None   # e.g. "https://maintainx.com"
     role_record_id: Optional[str] = None
     role_title: Optional[str] = None
+    role_app_page: Optional[str] = None    # e.g. "https://app.whisperedagent.com/roles/rec..."
 
     # Suggested field updates accumulated from the conversation (not written to Airtable)
     suggested_updates: dict = field(default_factory=dict)
