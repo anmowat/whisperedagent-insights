@@ -10,6 +10,7 @@ Tables:
 
 import logging
 import os
+from difflib import get_close_matches
 from typing import Optional
 from pyairtable import Api
 
@@ -98,6 +99,21 @@ class AirtableClient:
         except Exception:
             logger.exception("find_company partial search failed for %r", company_name)
 
+        # 3. Fuzzy fallback — catches misspellings (e.g. "monjour" → "Monjur").
+        try:
+            all_records = self.companies.all(fields=["Company Name"])
+            name_to_record = {
+                r["fields"]["Company Name"].lower(): r
+                for r in all_records
+                if r["fields"].get("Company Name")
+            }
+            matches = get_close_matches(company_name.lower(), name_to_record.keys(), n=1, cutoff=0.6)
+            if matches:
+                logger.info("find_company fuzzy match for %r → %r", company_name, matches[0])
+                return name_to_record[matches[0]]
+        except Exception:
+            logger.exception("find_company fuzzy fallback failed for %r", company_name)
+
         return None
 
     def get_company(self, record_id: str) -> Optional[dict]:
@@ -158,6 +174,13 @@ class AirtableClient:
                 len(records), role_title, company_name,
             )
             if not records:
+                # Fuzzy fallback: resolve the real company name then retry by ID.
+                co = self.find_company(company_name)
+                if co:
+                    role = self.find_role(role_title, company_id=co["id"])
+                    if role:
+                        logger.info("find_role_for_company fuzzy hit: %r at %r", role_title, co["fields"].get("Company Name"))
+                        return role, co
                 return None, None
 
             role = records[0]

@@ -122,7 +122,7 @@ Write a SHORT response (3-4 sentences max) that:
 Do NOT try to share everything — leave room for dialogue. No markdown."""
 
 
-def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium") -> str:
+def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: str = "premium", top_gap: str = None) -> str:
     """
     Build a prompt for a role-specific synopsis when the user is focused on a particular position.
     """
@@ -186,6 +186,16 @@ HG6M Outlook: {cf.get('HG6M', 'N/A')}
 
     body = "\n\n".join(sections)
 
+    if mode == "premium":
+        can_ask_more = "Let them know they can ask you more questions for additional details."
+    else:
+        can_ask_more = ""
+
+    if top_gap and mode in ("pro", "premium"):
+        ending_instruction = f"End with ONE natural conversational question that could surface: {top_gap}. Do NOT make it sound like a form field."
+    else:
+        ending_instruction = "End with ONE natural question asking what they've learned from their own conversations."
+
     return f"""You are the Insights agent for a professional community. A member just asked about this role.
 
 {mode_instruction + chr(10) + chr(10) if mode_instruction else ""}DATA ON FILE:
@@ -196,7 +206,7 @@ HG6M Outlook: {cf.get('HG6M', 'N/A')}
 Write a SHORT response (3-4 sentences max) that:
 1. Summarises what we know about the role — the 1-2 most useful things.
 2. Mentions anything notable about the hiring process if we have it.
-3. Ends with ONE natural question asking what they've learned from their own conversations.
+{"3. " + can_ask_more + chr(10) if can_ask_more else ""}{"4" if can_ask_more else "3"}. {ending_instruction}
 
 Do NOT try to share everything at once — the goal is to start a dialogue. No markdown."""
 

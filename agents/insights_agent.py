@@ -363,7 +363,13 @@ class InsightsAgent:
         return self._call_claude([{"role": "user", "content": prompt}])
 
     def _generate_role_synopsis(self, company_record: Optional[dict], role_record: dict, mode: str = "premium") -> str:
-        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode)
+        role_fields = (role_record or {}).get("fields", {})
+        company_fields = (company_record or {}).get("fields", {})
+        role_gaps = get_role_gaps(role_fields)
+        company_gaps = get_company_gaps(company_fields)
+        all_gaps = role_gaps + company_gaps
+        top_gap = all_gaps[0][1] if all_gaps else None
+        prompt = build_role_synopsis_prompt(role_record, company_record or {}, [], mode=mode, top_gap=top_gap)
         return self._call_claude([{"role": "user", "content": prompt}])
 
     # ------------------------------------------------------------------

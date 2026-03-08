@@ -27,19 +27,19 @@ Company.Confidential Notes  Non-public intel across four topics:
 
 # ── Role gap descriptions (in conversational language for Claude) ─────────────
 
+# Ordered by collection priority: Find → Location → Notes
 ROLE_GAP_DESCRIPTIONS = {
     "Find": (
-        "who's leading the search — the internal hiring sponsor at the company, "
+        "how to find or reach the hiring manager — the internal sponsor, "
         "the external recruiter or search firm, and any community member who can "
-        "help someone get an introduction"
+        "help make an introduction"
     ),
+    "Location": "where the role is based and whether it's remote, hybrid, or in-office",
     "Notes": (
         "role details across three areas — Scope (responsibilities and team size); "
         "Criteria (key skills, interview panel, reason for hire); "
-        "Details (location/remote/hybrid, hiring manager, who the role reports to)"
+        "Details (hiring manager, who the role reports to)"
     ),
-    "Location": "where the role is based and whether it's remote, hybrid, or in-office",
-    "Compensation": "total compensation — OTE cash + bonus in USD",
 }
 
 # ── Company confidential gap descriptions ─────────────────────────────────────
