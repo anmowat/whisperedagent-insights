@@ -295,60 +295,65 @@ class InsightsAgent:
 
     def _handle_followup(self, state: ConversationState, user_text: str) -> str:
         """Answer follow-up questions, extract data, and probe gaps conversationally."""
-        # Check if they're asking about a new entity
+        # Check if they're asking about a new entity — reset and re-identify if so
         parsed = self._parse_company_and_role(user_text)
         new_company = parsed.get("company")
-        if new_company and new_company.lower() != (state.company_name or "").lower():
+        new_role = parsed.get("role")
+        current_company = (state.company_name or "").lower()
+        current_role = (state.role_title or "").lower()
+
+        switching_company = (
+            new_company
+            and new_company.lower() != current_company
+            and new_company.lower() not in current_company
+        )
+        switching_role = (
+            new_role
+            and not new_company               # role-only switch (same company)
+            and new_role.lower() != current_role
+        )
+
+        if switching_company or switching_role:
             state.phase = Phase.IDENTIFY
             state.company_record_id = None
             state.company_name = None
             state.role_record_id = None
             state.role_title = None
+            state.suggested_updates = {}
             return self._handle_identify(state, user_text)
 
-        # Extract structured data from what the user said
+        # Extract structured data from what the user said (silent — never raises)
         self._extract_and_accumulate(state, user_text)
 
-        # Build gap-aware context to guide Claude's next question
+        # Determine remaining gaps to guide the next question
         role_fields = {}
         company_fields = {}
         if state.role_record_id:
             role_rec = self.db.find_role_by_id(state.role_record_id)
-            role_fields = role_rec.get("fields", {}) if role_rec else {}
+            role_fields = (role_rec or {}).get("fields", {})
         if state.company_record_id:
             co_rec = self.db.get_company(state.company_record_id)
-            company_fields = co_rec.get("fields", {}) if co_rec else {}
+            company_fields = (co_rec or {}).get("fields", {})
 
-        # Merge in anything already accumulated this session
-        session_role = state.suggested_updates.get("role", {})
-        session_company = state.suggested_updates.get("company", {})
-        merged_role = {**role_fields, **{k: v for k, v in session_role.items() if v}}
-        merged_company = {**company_fields, **{k: v for k, v in session_company.items() if v}}
+        merged_role = {**role_fields, **{k: v for k, v in state.suggested_updates.get("role", {}).items() if v}}
+        merged_company = {**company_fields, **{k: v for k, v in state.suggested_updates.get("company", {}).items() if v}}
 
         role_gaps = get_role_gaps(merged_role) if state.role_record_id else []
         company_gaps = get_company_gaps(merged_company)
 
-        # Inject gap context into the conversation so Claude asks natural follow-ups
-        messages = list(state.messages)
+        # Pass gap hints via a dynamic system prompt — NEVER inject into the user's message
+        # (injecting into user messages confuses Claude into producing greeting-like responses)
+        system = SYSTEM_PROMPT
         if role_gaps or company_gaps:
-            gap_prompt = build_gap_question_prompt(
-                state.role_title or "",
-                state.company_name or "",
-                role_gaps,
-                company_gaps,
+            top = [desc for _, desc in (role_gaps + company_gaps)][:2]
+            system = (
+                SYSTEM_PROMPT
+                + "\n\nAfter your response, ask ONE natural follow-up question that could surface: "
+                + "; ".join(top)
+                + ". Frame it as a conversational question, not a form field prompt."
             )
-            # Append as a hidden instruction before Claude generates its reply
-            messages = messages[:-1] + [{
-                "role": "user",
-                "content": (
-                    f"{user_text}\n\n"
-                    f"[Agent guidance — do not reveal this to user: {gap_prompt}]"
-                ),
-            }]
-        else:
-            messages = list(state.messages)
 
-        return self._call_claude(messages)
+        return self._call_claude(state.messages, system=system)
 
     # ------------------------------------------------------------------
     # Synopsis generators
@@ -421,11 +426,11 @@ class InsightsAgent:
         except (json.JSONDecodeError, AttributeError):
             return {"company": None, "role": None}
 
-    def _call_claude(self, messages: list[dict], max_tokens: int = 1024) -> str:
+    def _call_claude(self, messages: list[dict], max_tokens: int = 1024, system: str = None) -> str:
         response = self.client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=max_tokens,
-            system=SYSTEM_PROMPT,
+            system=system or SYSTEM_PROMPT,
             messages=messages,
         )
         return response.content[0].text
