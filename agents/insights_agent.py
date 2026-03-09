@@ -185,16 +185,16 @@ class InsightsAgent:
 
         if company_record:
             state.company_record_id = company_record["id"]
-            state.company_name = company_record["fields"].get("Company Name", company_name)
-            raw_domain = company_record["fields"].get("Domain") or ""
+            state.company_name = self._field(company_record["fields"], "Company Name", company_name or "")
+            raw_domain = self._field(company_record["fields"], "Domain")
             state.company_domain = self._ensure_https(raw_domain.strip())
         elif company_name:
             state.company_name = company_name
 
         if role_record:
             state.role_record_id = role_record["id"]
-            state.role_title = role_record["fields"].get("Title", role_title)
-            state.role_app_page = (role_record["fields"].get("App Page") or "").strip()
+            state.role_title = self._field(role_record["fields"], "Title", role_title or "")
+            state.role_app_page = self._field(role_record["fields"], "App Page").strip()
 
         # Go straight to the tier-appropriate response — no confirmation step needed.
         # The hyperlinked company/role name in the response serves as implicit confirmation.
@@ -216,8 +216,8 @@ class InsightsAgent:
         numbered question asking the user which role they meant.
         """
         state.company_record_id = company_record["id"]
-        state.company_name = company_record["fields"].get("Company Name", "")
-        raw_domain = company_record["fields"].get("Domain") or ""
+        state.company_name = self._field(company_record["fields"], "Company Name")
+        raw_domain = self._field(company_record["fields"], "Domain")
         state.company_domain = self._ensure_https(raw_domain.strip())
         state.candidate_role_ids = [r["id"] for r in candidates]
         state.phase = Phase.DISAMBIGUATING
@@ -298,8 +298,8 @@ class InsightsAgent:
         # Got a clear choice — proceed exactly as if the role was found directly
         state.candidate_role_ids = []
         state.role_record_id = chosen["id"]
-        state.role_title = chosen["fields"].get("Title", "")
-        state.role_app_page = (chosen["fields"].get("App Page") or "").strip()
+        state.role_title = self._field(chosen["fields"], "Title")
+        state.role_app_page = self._field(chosen["fields"], "App Page").strip()
         return self._dispatch_after_match(state, user_text)
 
     def _dispatch_after_match(self, state: ConversationState, user_text: str) -> str:
@@ -589,8 +589,8 @@ class InsightsAgent:
         from prompts.synopsis import build_roles_listing_prompt
         co_rec = self.db.get_company(state.company_record_id)
         roles = self.db.get_company_roles(state.company_record_id)
-        open_roles = [r for r in roles if (r["fields"].get("Status") or "open").lower() != "closed"]
-        closed_roles = [r for r in roles if (r["fields"].get("Status") or "").lower() == "closed"]
+        open_roles = [r for r in roles if self._field(r["fields"], "Status", "open").lower() != "closed"]
+        closed_roles = [r for r in roles if self._field(r["fields"], "Status").lower() == "closed"]
         company_url = state.company_domain or ""
         prompt = build_roles_listing_prompt(co_rec or {}, open_roles, closed_roles, company_url=company_url)
         return self._call_claude([{"role": "user", "content": prompt}])
@@ -839,8 +839,8 @@ class InsightsAgent:
         Set company context in state and show the other roles we're tracking there.
         """
         state.company_record_id = company_record["id"]
-        state.company_name = company_record["fields"].get("Company Name", "")
-        raw_domain = company_record["fields"].get("Domain") or ""
+        state.company_name = self._field(company_record["fields"], "Company Name")
+        raw_domain = self._field(company_record["fields"], "Domain")
         state.company_domain = self._ensure_https(raw_domain.strip())
         state.phase = Phase.COMPANY_FOUND
 
@@ -854,7 +854,7 @@ class InsightsAgent:
                 "Tell me what you know about it and I'll capture it."
             )
 
-        open_roles = [r for r in roles if (r["fields"].get("Status") or "open").lower() != "closed"]
+        open_roles = [r for r in roles if self._field(r["fields"], "Status", "open").lower() != "closed"]
         display_roles = open_roles or roles  # fall back to all if everything is closed
         role_lines = []
         for r in display_roles:
@@ -910,6 +910,14 @@ class InsightsAgent:
     # ------------------------------------------------------------------
     # Claude helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _field(record_fields: dict, key: str, default: str = "") -> str:
+        """Return a plain string from an Airtable field, which may be a list."""
+        val = record_fields.get(key, default)
+        if isinstance(val, list):
+            val = val[0] if val else default
+        return val if isinstance(val, str) else default
 
     def _parse_company_and_role(self, user_text: str) -> dict:
         prompt = (
