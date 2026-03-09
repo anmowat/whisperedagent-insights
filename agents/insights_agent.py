@@ -442,6 +442,47 @@ class InsightsAgent:
         )
         return self._call_claude([{"role": "user", "content": ack_prompt}])
 
+    # Pronoun/reference words that signal "the role we were just talking about"
+    _PRONOUN_ROLE_TOKENS = frozenset({
+        "that", "this", "it", "one", "the", "same", "above", "mentioned",
+        "role", "position", "job", "opening",
+    })
+
+    def _is_role_info_request(self, user_text: str) -> bool:
+        """
+        Return True if the user is asking for more information about a role that was
+        previously mentioned in the conversation via a pronoun or generic reference
+        (e.g. "tell me more about that role", "more info on that one", "what about it?").
+        """
+        lower = user_text.lower()
+        # Phrases that explicitly reference something mentioned earlier
+        ref_phrases = [
+            "that role", "that one", "that position", "that job", "that opening",
+            "tell me more", "more about", "more info", "more detail",
+            "what about it", "and the role", "about the role",
+        ]
+        if any(p in lower for p in ref_phrases):
+            return True
+        # Short messages that are only pronoun/reference tokens
+        tokens = set(lower.split())
+        non_stop = tokens - self._PRONOUN_ROLE_TOKENS - {"a", "an", "of", "on", "in", "for", "me", "us", "more", "some", "any"}
+        return len(tokens) <= 6 and not non_stop
+
+    def _identify_role_from_context(self, state: ConversationState, roles: list[dict]) -> dict | None:
+        """
+        Scan recent assistant messages to find which role title was most recently mentioned.
+        Returns the matching role record, or None if no title match found.
+        """
+        for msg in reversed(state.messages):
+            if msg.get("role") != "assistant":
+                continue
+            content = msg["content"].lower()
+            for role in roles:
+                title = self._field(role.get("fields", {}), "Title").lower()
+                if title and title in content:
+                    return role
+        return None
+
     def _is_continuation_reply(self, state: ConversationState, user_text: str) -> bool:
         """
         Return True if user_text is a direct reply to the agent's last question rather
@@ -527,6 +568,27 @@ class InsightsAgent:
             state.role_record_id = None
             state.role_title = None
             return self._handle_identify(state, user_text)
+
+        # "Tell me more about that role / that one / it" — pronominal reference to a role
+        # mentioned in the conversation.  Resolve to the DB record and show the synopsis
+        # rather than letting the generic _call_claude guess from message history.
+        if (
+            not state.role_record_id
+            and state.company_record_id
+            and self._is_role_info_request(user_text)
+        ):
+            company_roles = self.db.get_company_roles(state.company_record_id)
+            matched = None
+            if len(company_roles) == 1:
+                matched = company_roles[0]
+            elif len(company_roles) > 1:
+                matched = self._identify_role_from_context(state, company_roles)
+            if matched:
+                state.role_record_id = matched["id"]
+                state.role_title = self._field(matched.get("fields", {}), "Title")
+                state.phase = Phase.ROLE_FOUND
+                co_rec = self.db.get_company(state.company_record_id)
+                return self._generate_role_synopsis(co_rec, matched, mode=state.mode, state=state)
 
         # Role listing intent — now safe to check because company context is confirmed correct
         if state.company_record_id and self._is_roles_list_intent(user_text):
@@ -986,7 +1048,8 @@ class InsightsAgent:
             "Return null only if no company is mentioned.\n"
             "- 'role': extract only a specific job title (e.g. 'VP of Sales', 'Head of GTM AI'). "
             "Do NOT extract generic words like 'role', 'roles', 'job', 'position', or "
-            "pronouns like 'that', 'this', 'it', 'one'. Return null if no real job title is mentioned.\n"
+            "pronoun/reference phrases like 'that role', 'that one', 'this role', 'it', 'that position', "
+            "'tell me more about that', 'the role'. Return null if no real job title is explicitly stated.\n"
             "Return a JSON object with keys 'company' and 'role'.\n\n"
             f"Message: {user_text}\n\nJSON:"
         )
