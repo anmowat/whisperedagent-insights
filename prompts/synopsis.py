@@ -129,6 +129,8 @@ Write a SHORT response (3-4 sentences max) that:
 2. Notes any open roles briefly (just titles, no details dump).
 3. Ends with ONE natural, open question asking what they've learned or experienced with this company.
 
+IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
+
 Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything — leave room for dialogue."""
 
 
@@ -235,6 +237,8 @@ Write a SHORT response (3-4 sentences max) that:
 1. Summarises what we know about the role — the 1-2 most useful things.
 2. Mentions anything notable about the hiring process if we have it.
 {"3. " + can_ask_more + chr(10) if can_ask_more else ""}{"4" if can_ask_more else "3"}. {ending_instruction}
+
+IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 
 Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything at once — the goal is to start a dialogue."""
 
