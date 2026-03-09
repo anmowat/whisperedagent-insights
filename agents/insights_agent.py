@@ -150,19 +150,26 @@ class InsightsAgent:
             if linked:
                 company_record = self.db.get_company(linked[0])
 
-        # For weak/no DB matches, run AI semantic matching against all company roles.
-        # This catches vague queries ("RevOps") that may map to multiple roles and
-        # avoids silently picking the wrong one when there is genuine ambiguity.
+        # For weak/no DB matches run semantic matching.
+        # With 2+ company roles we use semantic as a *filter* (drop the clearly
+        # unrelated) rather than a picker: any roles that survive go to
+        # disambiguation so the user decides — we never silently pick one when
+        # there is genuine ambiguity.
         if company_record and role_title and match_type in ("notes", "none"):
             company_roles = self.db.get_company_roles(company_record["id"])
             if company_roles:
-                matches = self._semantic_role_match(role_title, company_roles)
-                if len(matches) > 1:
-                    return self._ask_disambiguate(state, company_record, matches)
-                elif len(matches) == 1:
-                    role_record = matches[0]
-                    match_type = "semantic"
-                # len == 0: keep whatever the DB found (notes hit) or nothing
+                if len(company_roles) == 1:
+                    # Only one role at the company — proceed with it.
+                    role_record = company_roles[0]
+                else:
+                    # Multiple roles — filter out clearly unrelated ones, then
+                    # disambiguate if 2+ remain (or use the sole survivor directly).
+                    candidates = self._semantic_role_filter(role_title, company_roles)
+                    if len(candidates) > 1:
+                        return self._ask_disambiguate(state, company_record, candidates)
+                    elif len(candidates) == 1:
+                        role_record = candidates[0]
+                    # 0 candidates: keep any notes hit, or fall through to not-found
 
         if not role_record and not company_record:
             entity = company_name or role_title
@@ -712,6 +719,57 @@ class InsightsAgent:
         except Exception:
             logger.debug("_map_location_to_picklist failed for %r", location_text)
         return []
+
+    def _semantic_role_filter(self, role_query: str, roles: list[dict]) -> list[dict]:
+        """
+        Filter *roles* to those plausibly related to *role_query*, used when there is
+        no strong title match and 2+ roles exist at the company.
+
+        Intentionally INCLUSIVE — we are filtering OUT clearly unrelated roles, not
+        picking a single best match. Any role that is even loosely in the same
+        function/domain is kept so the user can make the final call via disambiguation.
+        Returns the filtered list (may be empty, 1, or many).
+        """
+        summaries = []
+        for i, r in enumerate(roles):
+            rf = r.get("fields", {})
+            title = rf.get("Title", "Untitled")
+            function = rf.get("Function", "")
+            notes_snippet = (rf.get("Notes") or "")[:200]
+            line = f"{i}: {title}"
+            if function:
+                line += f" ({function})"
+            if notes_snippet:
+                line += f" — {notes_snippet}"
+            summaries.append(line)
+
+        prompt = (
+            f'A user in a GTM/RevOps professional community is asking about: "{role_query}"\n\n'
+            f'Roles at this company:\n' + "\n".join(summaries) + "\n\n"
+            f'Remove only roles that are CLEARLY in a completely different function '
+            f'(e.g. a Finance, HR, or pure Engineering role when the query is about RevOps/GTM). '
+            f'Keep everything that could plausibly be what the user means — including '
+            f'adjacent roles like GTM AI, Revenue Intelligence, Sales/Marketing Ops, '
+            f'GTM Strategy, or Growth. When in doubt, KEEP the role. '
+            f'Return a JSON array of the indices to KEEP. '
+            f'Return [] only if nothing is remotely related. Valid JSON only — no preamble.'
+        )
+        try:
+            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=32)
+            cleaned = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+            result = json.loads(cleaned)
+            if isinstance(result, list):
+                kept = [roles[i] for i in result if isinstance(i, int) and 0 <= i < len(roles)]
+                logger.info(
+                    "_semantic_role_filter: %r → kept %s",
+                    role_query,
+                    [r["fields"].get("Title") for r in kept],
+                )
+                return kept
+        except Exception:
+            logger.debug("_semantic_role_filter failed for %r", role_query)
+        # On failure, return all roles (safest — let user pick)
+        return roles
 
     def _semantic_role_match(self, role_query: str, roles: list[dict]) -> list[dict]:
         """
