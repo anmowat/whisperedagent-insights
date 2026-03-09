@@ -913,12 +913,15 @@ class InsightsAgent:
 
     def _parse_company_and_role(self, user_text: str) -> dict:
         prompt = (
-            "Extract the company name and job role title from this message, "
-            "but ONLY if the user is explicitly naming a specific company or job role. "
-            "Do NOT extract pronouns (that, this, it, one), filler words, or fragments "
-            "of a continuing conversation — return null for those. "
-            "Return a JSON object with keys 'company' and 'role'. "
-            "Use null for any field that is not a clear, specific proper noun.\n\n"
+            "Extract the company name and job role title from this message.\n"
+            "Rules:\n"
+            "- 'company': extract any business, organisation, or product name, even if "
+            "lowercase or abbreviated (e.g. 'maintainx', 'openai', '11x', 'acme corp'). "
+            "Return null only if no company is mentioned.\n"
+            "- 'role': extract only a specific job title (e.g. 'VP of Sales', 'Head of GTM AI'). "
+            "Do NOT extract generic words like 'role', 'roles', 'job', 'position', or "
+            "pronouns like 'that', 'this', 'it', 'one'. Return null if no real job title is mentioned.\n"
+            "Return a JSON object with keys 'company' and 'role'.\n\n"
             f"Message: {user_text}\n\nJSON:"
         )
         raw = self._call_claude([{"role": "user", "content": prompt}])
