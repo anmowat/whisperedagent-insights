@@ -106,6 +106,8 @@ class InsightsAgent:
             reply = self._handle_confirming(state, user_text)
         elif state.phase == Phase.DISAMBIGUATING:
             reply = self._handle_disambiguating(state, user_text)
+        elif state.phase == Phase.DISAMBIGUATING_COMPANY:
+            reply = self._handle_disambiguating_company(state, user_text)
         elif state.phase == Phase.AWAITING_SHARE:
             reply = self._handle_awaiting_share(state, user_text)
         elif state.phase in (Phase.COMPANY_FOUND, Phase.ROLE_FOUND):
@@ -144,7 +146,15 @@ class InsightsAgent:
         elif role_title:
             role_record = self.db.find_role(role_title)
         elif company_name:
-            company_record = self.db.find_company(company_name)
+            # Use find_companies (plural) so we can detect ambiguity.
+            # If "scale" matches Scale, PayScale, and Zscaler we must ask the
+            # user which company they mean before pulling roles.
+            candidates = self.db.find_companies(company_name)
+            if len(candidates) > 1:
+                return self._ask_disambiguate_company(state, candidates)
+            elif len(candidates) == 1:
+                company_record = candidates[0]
+            # else: no match — fall through to not-found handling below
 
         if role_record and not company_record:
             linked = role_record["fields"].get("Company", [])
@@ -311,6 +321,84 @@ class InsightsAgent:
         state.role_record_id = chosen["id"]
         state.role_title = self._field(chosen["fields"], "Title")
         state.role_app_page = self._field(chosen["fields"], "App Page").strip()
+        return self._dispatch_after_match(state, user_text)
+
+    # ------------------------------------------------------------------
+    # Company disambiguation
+    # ------------------------------------------------------------------
+
+    def _ask_disambiguate_company(self, state: ConversationState, candidates: list[dict]) -> str:
+        """
+        Present multiple matching companies and ask the user which one they mean.
+        Stores candidate IDs in state and sets DISAMBIGUATING_COMPANY phase.
+        """
+        state.candidate_company_ids = [c["id"] for c in candidates]
+        state.phase = Phase.DISAMBIGUATING_COMPANY
+
+        lines = []
+        for i, c in enumerate(candidates, 1):
+            cf = c.get("fields", {})
+            name = cf.get("Company Name", "Unknown")
+            desc = cf.get("Description", "")
+            blurb = f": {desc[:80]}..." if desc else ""
+            lines.append(f"{i}. **{name}**{blurb}")
+
+        numbered = "\n".join(lines)
+        return (
+            f"I found a few companies that match — which one did you mean?\n\n"
+            f"{numbered}\n\n"
+            f"**Just reply with the number or the company name.**"
+        )
+
+    def _handle_disambiguating_company(self, state: ConversationState, user_text: str) -> str:
+        """
+        User has replied to the company disambiguation question. Resolve their
+        selection and proceed as if they had named that company directly.
+        """
+        candidates = [
+            self.db.get_company(cid)
+            for cid in state.candidate_company_ids
+            if cid
+        ]
+        candidates = [c for c in candidates if c]
+
+        if not candidates:
+            state.phase = Phase.IDENTIFY
+            state.candidate_company_ids = []
+            return self._handle_identify(state, user_text)
+
+        # Ask Claude to resolve the user's reply to one of the candidates
+        summaries = "\n".join(
+            f"{i}. {c['fields'].get('Company Name', 'Unknown')}"
+            for i, c in enumerate(candidates, 1)
+        )
+        prompt = (
+            f"The user was asked to choose a company from this list:\n{summaries}\n\n"
+            f"They replied: \"{user_text}\"\n\n"
+            f"Which number did they choose? Reply with just the integer, or 0 if unclear."
+        )
+        chosen = None
+        try:
+            raw = self._call_claude([{"role": "user", "content": prompt}], max_tokens=5)
+            idx = int(raw.strip().split()[0])
+            if 1 <= idx <= len(candidates):
+                chosen = candidates[idx - 1]
+        except Exception:
+            logger.debug("_handle_disambiguating_company parse failed for %r", user_text)
+
+        if not chosen:
+            # Could not resolve — ask again
+            return (
+                "I didn't catch which one you meant. "
+                "**Could you reply with the number or the full company name?**"
+            )
+
+        state.candidate_company_ids = []
+        state.company_record_id = chosen["id"]
+        state.company_name = self._field(chosen["fields"], "Company Name")
+        raw_domain = self._field(chosen["fields"], "Domain")
+        state.company_domain = self._ensure_https(raw_domain.strip())
+        state.phase = Phase.IDENTIFY  # Let _dispatch_after_match set the real phase
         return self._dispatch_after_match(state, user_text)
 
     def _dispatch_after_match(self, state: ConversationState, user_text: str) -> str:

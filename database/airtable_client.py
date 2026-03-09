@@ -128,13 +128,24 @@ class AirtableClient:
 
         Airtable resolves ARRAYJOIN({Company}) to display values (company names),
         not record IDs, so we must filter by name rather than by ID.
+
+        Uses an exact-element match (comma-boundary trick) to avoid false matches
+        where the company name is a substring of another name
+        (e.g. "Scale" must NOT match roles at "PayScale" or "Zscaler").
         """
         try:
             co = self.get_company(company_id)
             company_name = (co.get("fields") or {}).get("Company Name", "") if co else ""
             if company_name:
                 name_q = company_name.lower().replace("'", "\\'")
-                formula = f"SEARCH(LOWER('{name_q}'), LOWER(ARRAYJOIN({{Company}})))"
+                # Wrap both needle and haystack with commas so we match whole elements,
+                # not substrings.  Works regardless of whether ARRAYJOIN uses "," or ", ".
+                formula = (
+                    f"OR("
+                    f"LOWER(ARRAYJOIN({{Company}})) = '{name_q}', "
+                    f"FIND(',' & LOWER('{name_q}') & ',', ',' & LOWER(ARRAYJOIN({{Company}})) & ',')"
+                    f")"
+                )
                 return self.roles.all(formula=formula)
             # Fallback: ID-based (works if Airtable config differs)
             formula = f"FIND('{company_id}', ARRAYJOIN({{Company}}))"
@@ -142,6 +153,46 @@ class AirtableClient:
         except Exception:
             logger.exception("get_company_roles failed for company %r", company_id)
             return []
+
+    def find_companies(self, company_name: str) -> list[dict]:
+        """Return all company records matching company_name.
+
+        Returns a single-item list when there is an exact match (unambiguous).
+        Returns multiple records when the name is a substring of several company
+        names — callers should present these to the user for disambiguation.
+        """
+        name_q = company_name.lower().replace("'", "\\'")
+
+        # 1. Exact match — unambiguous; return immediately.
+        try:
+            exact = self.companies.all(formula=f"LOWER({{Company Name}}) = LOWER('{name_q}')")
+            if exact:
+                return exact
+        except Exception:
+            logger.warning("find_companies exact formula failed for %r", company_name)
+
+        # 2. Partial / substring match — may return several companies.
+        try:
+            records = self.companies.all(formula=f"SEARCH(LOWER('{name_q}'), LOWER({{Company Name}}))")
+            if records:
+                return records
+        except Exception:
+            logger.exception("find_companies partial search failed for %r", company_name)
+
+        # 3. Fuzzy fallback — catches misspellings.
+        try:
+            all_records = self.companies.all(fields=["Company Name"])
+            name_to_record = {
+                r["fields"]["Company Name"].lower(): r
+                for r in all_records
+                if r["fields"].get("Company Name")
+            }
+            matches = get_close_matches(company_name.lower(), name_to_record.keys(), n=3, cutoff=0.6)
+            return [name_to_record[m] for m in matches]
+        except Exception:
+            logger.exception("find_companies fuzzy fallback failed for %r", company_name)
+
+        return []
 
     # -------------------------------------------------------------------------
     # Role lookups
