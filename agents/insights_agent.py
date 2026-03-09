@@ -464,8 +464,12 @@ class InsightsAgent:
         current_company = (state.company_name or "").lower()
         current_role = (state.role_title or "").lower()
 
+        # Require a minimum length to avoid pronouns / continuation words ("that", "it", "this")
+        # being mistakenly treated as a new company or role name.
+        _MIN_LEN = 4
         switching_company = (
             new_company
+            and len(new_company) >= _MIN_LEN
             and new_company.lower() != current_company
             and new_company.lower() not in current_company
         )
@@ -476,6 +480,7 @@ class InsightsAgent:
         )
         switching_role = (
             new_role
+            and len(new_role) >= _MIN_LEN
             and not switching_company
             and (not new_company or same_company_mentioned)
             and new_role.lower() != current_role
@@ -904,9 +909,12 @@ class InsightsAgent:
 
     def _parse_company_and_role(self, user_text: str) -> dict:
         prompt = (
-            "Extract the company name and job role title from this message. "
+            "Extract the company name and job role title from this message, "
+            "but ONLY if the user is explicitly naming a specific company or job role. "
+            "Do NOT extract pronouns (that, this, it, one), filler words, or fragments "
+            "of a continuing conversation — return null for those. "
             "Return a JSON object with keys 'company' and 'role'. "
-            "Use null for any field you cannot determine.\n\n"
+            "Use null for any field that is not a clear, specific proper noun.\n\n"
             f"Message: {user_text}\n\nJSON:"
         )
         raw = self._call_claude([{"role": "user", "content": prompt}])
