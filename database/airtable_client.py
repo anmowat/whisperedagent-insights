@@ -236,19 +236,19 @@ class AirtableClient:
             return None
 
     def get_location_options(self) -> list[str]:
-        """Return valid HQ Location picklist values from the Roles table schema (cached)."""
+        """Return valid Region picklist values from the Roles table schema (cached)."""
         if hasattr(self, "_location_options_cache"):
             return self._location_options_cache
         try:
             schema = self.roles.schema()
             for field in schema.fields:
-                if field.name == "HQ Location":
+                if field.name == "Region":
                     choices = getattr(getattr(field, "options", None), "choices", None) or []
                     options = [c.name for c in choices]
-                    logger.info("Fetched HQ Location options: %r", options)
+                    logger.info("Fetched Region options: %r", options)
                     self._location_options_cache = options
                     return options
         except Exception:
-            logger.warning("Could not fetch HQ Location schema options")
+            logger.warning("Could not fetch Region schema options")
         self._location_options_cache = []
         return []

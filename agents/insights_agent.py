@@ -657,7 +657,7 @@ class InsightsAgent:
 
         # Premium + role: ensure Claude always gives a brief overview of what we know
         if state.mode == "premium" and role_fields:
-            key_facts = {k: v for k, v in merged_role.items() if v and k in ("Title", "Function", "HM Name", "HQ Location", "Find", "Notes")}
+            key_facts = {k: v for k, v in merged_role.items() if v is not None and k in ("Title", "Function", "HM Name", "Region", "Remote", "Find", "Notes")}
             system = system + (
                 "\n\nIMPORTANT: You are discussing the role below with a premium member. "
                 "Always reference what we know about it (briefly) before asking your question.\n"
@@ -796,19 +796,19 @@ class InsightsAgent:
                 existing = updates["role"].get("Notes") or airtable_role_fields.get("Notes", "")
                 merged = self._structured_merge("role_notes", existing, value)
                 updates["role"]["Notes"] = merged
-            elif field == "Location":
+            elif field == "Region":
                 location_text = str(value)
                 # Map to valid Airtable picklist values
                 valid_options = self.db.get_location_options()
                 if valid_options:
                     mapped = self._map_location_to_picklist(location_text, valid_options)
                     if mapped:
-                        existing_loc = updates["role"].get("HQ Location") or airtable_role_fields.get("HQ Location") or []
+                        existing_loc = updates["role"].get("Region") or airtable_role_fields.get("Region") or []
                         if isinstance(existing_loc, str):
                             existing_loc = [existing_loc] if existing_loc else []
                         # Merge: add new values, preserve existing, deduplicate
                         merged_loc = list(dict.fromkeys(existing_loc + mapped))
-                        updates["role"]["HQ Location"] = merged_loc
+                        updates["role"]["Region"] = merged_loc
                 # Always also capture the full detail text in Notes → Details
                 existing_notes = updates["role"].get("Notes") or airtable_role_fields.get("Notes", "")
                 merged_notes = self._structured_merge("role_notes", existing_notes, f"Location detail: {location_text}")
@@ -834,7 +834,7 @@ class InsightsAgent:
                     updates["company"][field] = self._simple_merge(field, existing, value) if existing else value
 
     def _map_location_to_picklist(self, location_text: str, valid_options: list[str]) -> list[str]:
-        """Map a free-text location description to one or more valid Airtable HQ Location picklist values."""
+        """Map a free-text location description to one or more valid Airtable Region picklist values."""
         options_str = "\n".join(f"- {o}" for o in valid_options)
         prompt = (
             f'The following location description comes from a job posting or conversation:\n'

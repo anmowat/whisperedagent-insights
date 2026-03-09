@@ -34,7 +34,7 @@ ROLE_GAP_DESCRIPTIONS = {
         "the external recruiter or search firm, and any community member who can "
         "help make an introduction"
     ),
-    "Location": "where the role is based and whether it's remote, hybrid, or in-office",
+    "Region": "where the role is based (region/city) and whether it's remote, hybrid, or in-office",
     "Notes": (
         "role details across three areas — Scope (responsibilities and team size); "
         "Criteria (key skills, interview panel, reason for hire); "
@@ -112,7 +112,7 @@ def build_data_extraction_prompt(user_text: str, role_name: str, company_name: s
 Role fields (only include if explicitly mentioned):
 - Find: who leads the hiring search (internal sponsor, recruiter name/firm, helpful community contacts)
 - Notes: structured as three sections — Scope (responsibilities, team size); Criteria (key skills, interview panel, reason for hire); Details (location/remote/hybrid/in-office, hiring manager, reports to). Also capture any qualitative comp context in Criteria (e.g. "comp reportedly low" or "strong equity component").
-- Location: free-text description of where the role is based and remote/hybrid/in-office policy (e.g. "east coast preferred, SF fine, open to remote")
+- Region: free-text description of where the role is based and remote/hybrid/in-office policy (e.g. "east coast preferred, SF fine, open to remote")
 - Compensation: INTEGER only — the annual USD cash total (base + bonus / OTE) as a plain number with no symbols, words, or punctuation (e.g. 180000). If the user gives a range use the midpoint. If the figure is vague or only qualitative (e.g. "low", "competitive") set this to null and capture the context in Notes instead.
 
 Company field (only include if mentioned):
@@ -127,7 +127,7 @@ Rules:
 - Compensation must be a plain integer or null — never a string
 - Return ONLY valid JSON, nothing else
 
-{{"role":{{"Find":null,"Notes":null,"Location":null,"Compensation":null}},"company":{{"Confidential Notes":null}}}}"""
+{{"role":{{"Find":null,"Notes":null,"Region":null,"Compensation":null}},"company":{{"Confidential Notes":null}}}}"""
 
 
 # ── Structured field schemas ──────────────────────────────────────────────────

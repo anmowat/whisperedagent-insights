@@ -54,7 +54,8 @@ Investors: {investors or 'Unknown'}
                     f"- {rf.get('Title', 'Untitled')} | "
                     + (f"Function: {rf['Function']} | " if rf.get('Function') else "")
                     + f"Hiring Manager: {rf.get('HM Name', 'Unknown')} | "
-                    f"Location: {', '.join(rf.get('HQ Location') or []) or fields.get('HQ', 'Unknown')} | "
+                    f"Region: {', '.join(rf.get('Region') or []) or fields.get('HQ', 'Unknown')} | "
+                    f"Remote: {'Yes' if rf.get('Remote') else 'No'} | "
                     f"Find: {rf.get('Find', '')} | "
                     f"Notes: {rf.get('Notes', '')}"
                 )
@@ -152,7 +153,8 @@ def build_role_synopsis_prompt(role: dict, company: dict, insights: list, mode: 
 ROLE: {role_title}{function_line}
 Company: {company_name}
 Hiring Manager: {rf.get('HM Name', 'Unknown')}
-Location: {rf.get('HQ Location') and ', '.join(rf.get('HQ Location')) or cf.get('HQ', 'Unknown')}
+Region: {', '.join(rf.get('Region') or []) or cf.get('HQ', 'Unknown')}
+Remote: {'Yes' if rf.get('Remote') else 'No'}
 How to Find / Apply: {rf.get('Find', 'Unknown')}
 Notes: {rf.get('Notes', 'None.')}
 """.strip()
@@ -262,7 +264,9 @@ def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: li
 
     def format_role(r):
         rf = r.get("fields", {})
-        location = ", ".join(rf.get("HQ Location") or []) or cf.get("HQ", "Unknown")
+        region = ", ".join(rf.get("Region") or []) or cf.get("HQ", "Unknown")
+        remote_flag = "Remote" if rf.get("Remote") else ""
+        location = " | ".join(filter(None, [region, remote_flag]))
         title = rf.get("Title", "Untitled")
         app_page = (rf.get("App Page") or "").strip()
         title_ref = f"[{title}]({app_page})" if app_page else title
