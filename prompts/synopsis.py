@@ -270,7 +270,8 @@ def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: li
         title = rf.get("Title", "Untitled")
         app_page = (rf.get("App Page") or "").strip()
         title_ref = f"[{title}]({app_page})" if app_page else title
-        parts = [title_ref]
+        # Always include the company name so attribution is unambiguous
+        parts = [f"{title_ref} at {company_name}"]
         if rf.get("Function"):
             parts.append(f"Function: {rf['Function']}")
         if rf.get("HM Name"):
@@ -285,6 +286,14 @@ def build_roles_listing_prompt(company: dict, open_roles: list, closed_roles: li
 
     open_section = "\n".join(format_role(r) for r in open_roles) if open_roles else "None tracked."
     closed_section = "\n".join(format_role(r) for r in closed_roles) if closed_roles else "None tracked."
+
+    multiple_open = len(open_roles) > 1
+    ending_instruction = (
+        "End by asking the user which of these roles they'd like to explore further — "
+        "do NOT ask a specific question about one role before knowing which one they care about."
+        if multiple_open else
+        "End with ONE question about what the user has heard regarding the hiring process or timeline."
+    )
 
     link_instruction = (
         f"Formatting: when mentioning the company name use {company_ref}, "
@@ -302,11 +311,12 @@ RECENTLY CLOSED ROLES:
 {closed_section}
 
 Write a SHORT response (3-5 sentences) that:
-1. Lists the open roles by title with any key details worth calling out (hiring manager, location).
+1. Lists the open roles — each with its company name, hiring manager, and location if available. Make the company name explicit for every role, even when they are all the same company.
 2. Mentions recently closed roles if any exist.
-3. Ends with ONE natural follow-up question.
+3. {ending_instruction}
 
-Bold only the question sentence using **double asterisks**. Do not use any other markdown."""
+IMPORTANT: Never attribute a role to a company other than the one stated in the data above.
+Bold only the question/prompt sentence using **double asterisks**. Do not use any other markdown."""
 
 
 def build_info_collection_prompt(entity_type: str, entity_name: str, existing_fields: dict) -> str:
