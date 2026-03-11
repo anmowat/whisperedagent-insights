@@ -706,16 +706,23 @@ class InsightsAgent {
       ? `"${state.roleTitle}" at ${state.companyName}`
       : state.companyName;
 
+    // Include the last few conversation turns so Claude has established context
+    const recentHistory = (state.messages || []).slice(-6);
+    const historyText = recentHistory
+      .map(m => `${m.role === 'user' ? 'User' : 'Agent'}: ${m.content}`)
+      .join('\n');
+
     const prompt = (
-      `We are capturing intel about ${focus}.\n` +
-      `User message: "${userText}"\n\n` +
-      'Does this message contain intel that is clearly about the entity above, ' +
-      'or does it reference a different role or company in a way that makes attribution ambiguous?\n' +
-      'Reply with JSON only: {"clear": true} or {"clear": false, "entity": "<what they seem to be referring to>"}'
+      `The conversation so far has been about ${focus}.\n\n` +
+      `Recent conversation:\n${historyText}\n\n` +
+      `Latest user message: "${userText}"\n\n` +
+      'Is this message clearly a continuation about the same entity, or does it EXPLICITLY and UNAMBIGUOUSLY reference a completely different role or company?\n' +
+      'Default to clear=true unless there is strong explicit evidence (e.g. the user names a different company/role by name) that they are talking about something else.\n' +
+      'Reply with JSON only: {"clear": true} or {"clear": false, "entity": "<the different entity they explicitly named>"}'
     );
 
     try {
-      const raw = await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 60 });
+      const raw = await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 80 });
       const cleaned = raw.trim().replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim();
       const result = JSON.parse(cleaned);
       if (!result.clear && result.entity) {
