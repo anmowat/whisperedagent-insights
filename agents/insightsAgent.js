@@ -595,6 +595,8 @@ class InsightsAgent {
   async _handleFollowup(state, userText) {
     // Guard: if the user is clearly replying to the agent's last question, skip entity-switching.
     if (await this._isContinuationReply(state, userText)) {
+      const clarification = await this._attributionClarification(state, userText);
+      if (clarification) return clarification;
       await this._extractAndAccumulate(state, userText);
       return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
     }
@@ -685,8 +687,48 @@ class InsightsAgent {
       }
     }
 
+    const clarification = await this._attributionClarification(state, userText);
+    if (clarification) return clarification;
     await this._extractAndAccumulate(state, userText);
     return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
+  }
+
+  /**
+   * Before extracting intel, check whether the message clearly refers to the
+   * current role/company in focus or might be about a different entity.
+   * Returns a clarifying question string if attribution is ambiguous, or null
+   * if the message is clearly about the current focus.
+   */
+  async _attributionClarification(state, userText) {
+    if (!state.roleTitle && !state.companyName) return null;
+
+    const focus = state.roleTitle
+      ? `"${state.roleTitle}" at ${state.companyName}`
+      : state.companyName;
+
+    const prompt = (
+      `We are capturing intel about ${focus}.\n` +
+      `User message: "${userText}"\n\n` +
+      'Does this message contain intel that is clearly about the entity above, ' +
+      'or does it reference a different role or company in a way that makes attribution ambiguous?\n' +
+      'Reply with JSON only: {"clear": true} or {"clear": false, "entity": "<what they seem to be referring to>"}'
+    );
+
+    try {
+      const raw = await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 60 });
+      const cleaned = raw.trim().replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim();
+      const result = JSON.parse(cleaned);
+      if (!result.clear && result.entity) {
+        const currentRef = this._roleRef(state) || this._companyRef(state);
+        return (
+          `Just to make sure I capture this in the right place — ` +
+          `**is that about ${result.entity}, or about ${currentRef}?**`
+        );
+      }
+    } catch (e) {
+      // Fail safe: proceed without clarification
+    }
+    return null;
   }
 
   async _buildFollowupSystem(state) {
