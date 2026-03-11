@@ -95,8 +95,8 @@ function buildDataExtractionPrompt(userText, roleName, companyName) {
 
 Role fields (only include if explicitly mentioned):
 - Find: who leads the hiring search (internal sponsor, recruiter name/firm, helpful community contacts)
-- Notes: structured as three sections — Scope (responsibilities, team size); Criteria (key skills, interview panel, reason for hire); Details (location/remote/hybrid/in-office, hiring manager, reports to). Also capture any qualitative comp context in Criteria (e.g. "comp reportedly low" or "strong equity component").
-- Region: free-text description of where the role is based and remote/hybrid/in-office policy (e.g. "east coast preferred, SF fine, open to remote")
+- Notes: structured as three sections — Scope (responsibilities, team size); Criteria (key skills, interview panel, reason for hire); Details (hiring manager, who the role reports to, compensation context — always capture comp figures or qualitative comp info here e.g. "$180-200k base + 25% bonus", "comp reportedly low", "strong equity component").
+- Region: free-text description capturing all location detail — cities, regions, days in office, remote/hybrid/in-office policy (e.g. "SF or NYC, 3 days in office, open to remote for right candidate")
 - Compensation: INTEGER only — the annual USD cash total (base + bonus / OTE) as a plain number with no symbols, words, or punctuation (e.g. 180000). If the user gives a range use the midpoint. If the figure is vague or only qualitative (e.g. "low", "competitive") set this to null and capture the context in Notes instead.
 
 Company field (only include if mentioned):
@@ -119,7 +119,7 @@ Rules:
 
 const ROLE_NOTES_SCHEMA = `Scope: <responsibilities and team size>
 Criteria: <key skills, interview panel, reason for hire>
-Details: <location/remote/hybrid/in-office, hiring manager, reports to>`;
+Details: <hiring manager, who the role reports to, compensation context e.g. "$180-200k base + 25% bonus" or "comp reportedly low">`;
 
 const COMPANY_NOTES_SCHEMA = `Status: ARR ~$Xm, ~Y employees, growth rate Z%, <competitive dynamics>, last raise <series / date>, runway <X months>
 GTM Motion: <inbound/outbound mix>, ACV $X, buyers <personas>, GRR X% / NRR X%
