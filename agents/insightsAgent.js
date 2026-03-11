@@ -8,11 +8,16 @@
  * Premium  Immediately share brief synopsis after confirmation, then dialog to
  *          fill gaps.  Includes contributor attribution in insights.
  *
- * Pro      Ask user to share first (AWAITING_SHARE), then brief synopsis minus
- *          contributor attribution; dialog to fill gaps.
+ * Pro      Ask user to share first (AWAITING_SHARE) — except:
+ *            - Posted roles: share existence at Pro-tier level without share gate.
+ *            - Closed roles: share all information without share gate.
+ *          Then brief synopsis minus contributor attribution; dialog to fill gaps.
  *
- * Free     Roles:     Ask user to share first; confirm we have it but share no
- *                     details; ask questions; mention upgrade.
+ * Free     Roles:     Ask user to share first (AWAITING_SHARE) — except:
+ *                       - Posted roles: share existence at Free-tier level without share gate.
+ *                       - Closed roles: share all information without share gate.
+ *                     Confirm we have it but share no details for other roles;
+ *                     ask questions; mention upgrade.
  *          Companies: Immediately share brief public snapshot; then dialog for
  *                     supplemental confidential info.
  *
@@ -423,6 +428,25 @@ class InsightsAgent {
         }
         return `I don't have any roles tracked for ${coRef} at the moment.`;
       }
+
+      // Status-based exceptions: skip the share gate for Posted and Closed roles.
+      // Posted → share existence at the user's tier level.
+      // Closed → share all information regardless of tier.
+      if (state.roleRecordId) {
+        const roleRec = await this.db.findRoleById(state.roleRecordId);
+        const roleStatus = (((roleRec || {}).fields || {}).Status || '').toLowerCase();
+        if (roleStatus.includes('closed')) {
+          const coRec = state.companyRecordId ? await this.db.getCompany(state.companyRecordId) : null;
+          state.phase = Phase.ROLE_FOUND;
+          return await this._generateRoleSynopsis(coRec, roleRec, 'premium', state);
+        }
+        if (roleStatus.includes('posted')) {
+          const coRec = state.companyRecordId ? await this.db.getCompany(state.companyRecordId) : null;
+          state.phase = Phase.ROLE_FOUND;
+          return await this._generateRoleSynopsis(coRec, roleRec, mode, state);
+        }
+      }
+
       state.phase = Phase.AWAITING_SHARE;
       if (mode === 'free') {
         return (
@@ -691,12 +715,15 @@ class InsightsAgent {
 
     let system;
     if (roleGaps.length > 0 || companyGaps.length > 0) {
-      const top = [...roleGaps, ...companyGaps].slice(0, 2).map(([, desc]) => desc);
+      const allGapDescs = [...roleGaps, ...companyGaps].map(([, desc]) => desc);
+      const gapList = allGapDescs.map((d, i) => `${i + 1}. ${d}`).join('\n');
       system = (
         SYSTEM_PROMPT +
-        '\n\nYou MUST end with ONE question specifically aimed at surfacing: ' +
-        top.join('; ') +
-        '. Frame it as a natural, conversational question — not a form field. ' +
+        '\n\nGaps we still want to fill (listed in priority order):\n' +
+        gapList +
+        '\n\nEnd with ONE question about whichever gap is most natural to ask about given the conversation so far. ' +
+        'If the user has already mentioned something relevant to a gap in this conversation, skip that gap and move to the next. ' +
+        'Frame it as a natural, conversational question — not a form field. ' +
         'Do NOT ask why the user wants the role or anything about their personal motivations or background.'
       );
     } else {
@@ -866,17 +893,10 @@ class InsightsAgent {
         updates.role.Notes = await this._structuredMerge('role_notes', existing, value);
       } else if (field === 'Region') {
         const locationText = String(value);
-        const validOptions = await this.db.getLocationOptions();
-        if (validOptions.length > 0) {
-          const mapped = await this._mapLocationToPicklist(locationText, validOptions);
-          if (mapped.length > 0) {
-            let existingLoc = updates.role.Region || airtableRoleFields.Region || [];
-            if (typeof existingLoc === 'string') existingLoc = existingLoc ? [existingLoc] : [];
-            updates.role.Region = [...new Set([...existingLoc, ...mapped])];
-          }
-        }
-        const existingNotes = updates.role.Notes || airtableRoleFields.Notes || '';
-        updates.role.Notes = await this._structuredMerge('role_notes', existingNotes, `Location detail: ${locationText}`);
+        const existingRegion = String(updates.role.Region || airtableRoleFields.Region || '');
+        updates.role.Region = existingRegion
+          ? await this._simpleMerge('Region', existingRegion, locationText)
+          : locationText;
       } else {
         const existing = String(updates.role[field] || airtableRoleFields[field] || '');
         updates.role[field] = existing
@@ -897,26 +917,6 @@ class InsightsAgent {
           : value;
       }
     }
-  }
-
-  async _mapLocationToPicklist(locationText, validOptions) {
-    const optionsStr = validOptions.map(o => `- ${o}`).join('\n');
-    const prompt = (
-      `The following location description comes from a job posting or conversation:\n` +
-      `"${locationText}"\n\n` +
-      `Match it to one or more values from this picklist:\n${optionsStr}\n\n` +
-      'Return ONLY a JSON array of matching picklist values using the exact strings above. ' +
-      'If nothing fits, return []. No preamble.'
-    );
-    try {
-      const raw = await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 128 });
-      const cleaned = raw.trim().replace(/^```json\n?/, '').replace(/^```\n?/, '').replace(/\n?```$/, '').trim();
-      const result = JSON.parse(cleaned);
-      if (Array.isArray(result)) return result.filter(v => validOptions.includes(v));
-    } catch (e) {
-      console.debug(`_mapLocationToPicklist failed for '${locationText}'`);
-    }
-    return [];
   }
 
   async _semanticRoleFilter(roleQuery, roles) {
