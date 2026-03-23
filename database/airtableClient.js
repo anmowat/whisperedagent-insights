@@ -217,19 +217,27 @@ class AirtableClient {
       const co = await this.getCompany(companyId);
       const companyName = ((co || {}).fields || {})['Company Name'] || '';
       if (companyName) {
-        const nameQ = companyName.toLowerCase().replace(/'/g, "\\'");
-        // Use SEARCH (substring) — same approach as findRoleForCompany, which reliably works.
-        // The exact-equality formula (LOWER(ARRAYJOIN({Company})) = 'name') silently returns
-        // empty for linked record fields in some Airtable configurations.
-        // SEARCH (substring) — same approach as findRoleForCompany, which reliably works.
-        const formula = `SEARCH(LOWER('${nameQ}'), LOWER(ARRAYJOIN({Company})))`;
-        const records = await this.roles.select({ filterByFormula: formula }).all();
-        return records.map(toDict).filter(_notConfidential);
+        // For linked record fields, Airtable filterByFormula compares against the
+        // primary field value (display name) using simple equality.
+        const nameEscaped = companyName.replace(/'/g, "\\'");
+        try {
+          const records = await this.roles.select({
+            filterByFormula: `{Company} = '${nameEscaped}'`,
+          }).all();
+          if (records.length > 0) {
+            return records.map(toDict).filter(_notConfidential);
+          }
+        } catch (e) {
+          console.warn(`getCompanyRoles formula failed for '${companyName}': ${e.message}`);
+        }
       }
-      // Fallback: search by company ID substring (covers both text and linked-record fields)
-      const formula = `SEARCH('${companyId}', ARRAYJOIN({Company}))`;
-      const records = await this.roles.select({ filterByFormula: formula }).all();
-      return records.map(toDict).filter(_notConfidential);
+      // Fallback: fetch all roles and filter by linked company record ID in JS.
+      // The Airtable REST API returns linked record fields as arrays of record IDs.
+      const allRecords = await this.roles.select().all();
+      return allRecords.map(toDict).filter(_notConfidential).filter(r => {
+        const linked = (r.fields || {}).Company;
+        return Array.isArray(linked) && linked.includes(companyId);
+      });
     } catch (err) {
       console.warn(`getCompanyRoles failed for company '${companyId}': ${err.message}`);
       return [];
