@@ -308,13 +308,16 @@ ${openSection}
 RECENTLY CLOSED ROLES:
 ${closedSection}
 
-Write a SHORT response (3-5 sentences) that:
-1. Lists the open roles — each with its company name, hiring manager, and location if available. Make the company name explicit for every role, even when they are all the same company.
-2. Mentions recently closed roles if any exist.
-3. ${endingInstruction}
+Write a response that:
+1. Opens with one short sentence (e.g. "We have X open roles at Company:").
+2. Lists each open role as a numbered line in this exact format (one role per line):
+   #1 [Role Title](link if available) — HM: Name | Location
+   Use the role's company name, hiring manager, and location. If a value is unknown, omit that part.
+3. Mentions recently closed roles briefly in a sentence after the list, if any exist.
+4. ${endingInstruction} Tell the user they can reply with a number to dive into any role.
 
 IMPORTANT: Never attribute a role to a company other than the one stated in the data above.
-Bold only the question/prompt sentence using **double asterisks**. Do not use any other markdown.`;
+Bold only the question/prompt sentence using **double asterisks**. Do not use any other markdown outside the numbered list lines.`;
 }
 
 

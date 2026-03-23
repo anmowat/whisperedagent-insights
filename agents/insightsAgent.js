@@ -648,6 +648,22 @@ class InsightsAgent {
   }
 
   async _handleFollowup(state, userText) {
+    // Numbered role selection: user replied with just a number (e.g. "2") after a roles listing.
+    const numMatch = userText.trim().match(/^#?(\d+)$/);
+    if (numMatch && state.companyRecordId && !state.roleRecordId) {
+      const idx = parseInt(numMatch[1], 10) - 1;
+      const roles = await this.db.getCompanyRoles(state.companyRecordId);
+      if (idx >= 0 && idx < roles.length) {
+        const picked = roles[idx];
+        state.roleRecordId = picked.id;
+        state.roleTitle = this._field((picked.fields || {}), 'Title');
+        state.roleAppPage = this._field((picked.fields || {}), 'App Page').trim();
+        state.phase = Phase.ROLE_FOUND;
+        const coRec = await this.db.getCompany(state.companyRecordId);
+        return await this._generateRoleSynopsis(coRec, picked, state.mode, state);
+      }
+    }
+
     // Role listing intent must be checked first — it takes priority over continuation detection.
     // "are there any other roles at maintainx" is still a continuation but needs a listing response.
     if (state.companyRecordId && this._isRolesListIntent(userText)) {
