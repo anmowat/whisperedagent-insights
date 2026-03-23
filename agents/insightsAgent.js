@@ -648,6 +648,33 @@ class InsightsAgent {
   }
 
   async _handleFollowup(state, userText) {
+    // Role listing intent must be checked first — it takes priority over continuation detection.
+    // "are there any other roles at maintainx" is still a continuation but needs a listing response.
+    if (state.companyRecordId && this._isRolesListIntent(userText)) {
+      if (state.mode === 'premium') {
+        return await this._listCompanyRoles(state);
+      } else {
+        const roles = await this.db.getCompanyRoles(state.companyRecordId);
+        const count = roles.length;
+        const noun = count === 1 ? 'role' : 'roles';
+        const coRef = this._companyRef(state);
+        if (!count) return `I don't have any roles tracked for ${coRef} at the moment.`;
+        if (state.mode === 'free') {
+          return (
+            `We do have ${count} ${noun} tracked for ${coRef}, ` +
+            'but the details are only available on Pro and above. ' +
+            '**Upgrade to Pro to unlock the role titles and hiring details.**'
+          );
+        }
+        // pro
+        return (
+          `We do have ${count} ${noun} tracked for ${coRef}. ` +
+          '**Upgrade to Premium to see the full breakdown — ' +
+          "or is there a specific role you've already come across?**"
+        );
+      }
+    }
+
     // Guard: if the user is clearly replying to the agent's last question, skip entity-switching.
     if (await this._isContinuationReply(state, userText)) {
       const clarification = await this._attributionClarification(state, userText);
@@ -713,32 +740,6 @@ class InsightsAgent {
         state.phase = Phase.ROLE_FOUND;
         const coRec = await this.db.getCompany(state.companyRecordId);
         return await this._generateRoleSynopsis(coRec, matched, state.mode, state);
-      }
-    }
-
-    // Role listing intent
-    if (state.companyRecordId && this._isRolesListIntent(userText)) {
-      if (state.mode === 'premium') {
-        return await this._listCompanyRoles(state);
-      } else {
-        const roles = await this.db.getCompanyRoles(state.companyRecordId);
-        const count = roles.length;
-        const noun = count === 1 ? 'role' : 'roles';
-        const coRef = this._companyRef(state);
-        if (!count) return `I don't have any roles tracked for ${coRef} at the moment.`;
-        if (state.mode === 'free') {
-          return (
-            `We do have ${count} ${noun} tracked for ${coRef}, ` +
-            'but the details are only available on Pro and above. ' +
-            '**Upgrade to Pro to unlock the role titles and hiring details.**'
-          );
-        }
-        // pro
-        return (
-          `We do have ${count} ${noun} tracked for ${coRef}. ` +
-          '**Upgrade to Premium to see the full breakdown — ' +
-          "or is there a specific role you've already come across?**"
-        );
       }
     }
 
