@@ -314,7 +314,7 @@ Write a response that:
    #1 [Role Title](link if available) — HM: Name | Location
    Use the role's company name, hiring manager, and location. If a value is unknown, omit that part.
 3. Mentions recently closed roles briefly in a sentence after the list, if any exist.
-4. ${endingInstruction} Tell the user they can reply with a number to dive into any role.
+4. ${endingInstruction}
 
 IMPORTANT: Never attribute a role to a company other than the one stated in the data above.
 Bold only the question/prompt sentence using **double asterisks**. Do not use any other markdown outside the numbered list lines.`;

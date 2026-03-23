@@ -367,8 +367,7 @@ class InsightsAgent {
     });
 
     return (
-      `I found a few companies that match — which one did you mean?\n\n${lines.join('\n')}\n\n` +
-      '**Just reply with the number or the company name.**'
+      `I found a few companies that match — which one did you mean?\n\n${lines.join('\n')}`
     );
   }
 
@@ -404,7 +403,7 @@ class InsightsAgent {
     }
 
     if (!chosen) {
-      return "I didn't catch which one you meant. **Could you reply with the number or the full company name?**";
+      return "I didn't catch which one you meant — could you clarify which company you're referring to?";
     }
 
     state.candidateCompanyIds = [];
@@ -648,13 +647,22 @@ class InsightsAgent {
   }
 
   async _handleFollowup(state, userText) {
-    // Numbered role selection: user replied with just a number (e.g. "2") after a roles listing.
-    const numMatch = userText.trim().match(/^#?(\d+)$/);
-    if (numMatch && state.companyRecordId && !state.roleRecordId) {
-      const idx = parseInt(numMatch[1], 10) - 1;
+    // Role selection by number or name: user replied with a number or partial role name after a roles listing.
+    if (state.companyRecordId && !state.roleRecordId) {
       const roles = await this.db.getCompanyRoles(state.companyRecordId);
-      if (idx >= 0 && idx < roles.length) {
-        const picked = roles[idx];
+      let picked = null;
+      const numMatch = userText.trim().match(/^#?(\d+)$/);
+      if (numMatch) {
+        const idx = parseInt(numMatch[1], 10) - 1;
+        if (idx >= 0 && idx < roles.length) picked = roles[idx];
+      } else if (roles.length > 0) {
+        const needle = userText.trim().toLowerCase();
+        picked = roles.find(r => {
+          const title = (this._field((r.fields || {}), 'Title') || '').toLowerCase();
+          return title.includes(needle);
+        }) || null;
+      }
+      if (picked) {
         state.roleRecordId = picked.id;
         state.roleTitle = this._field((picked.fields || {}), 'Title');
         state.roleAppPage = this._field((picked.fields || {}), 'App Page').trim();
