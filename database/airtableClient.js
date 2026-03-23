@@ -213,33 +213,46 @@ class AirtableClient {
    * @returns {Promise<Array>}
    */
   async getCompanyRoles(companyId) {
+    console.info(`[getCompanyRoles] start — companyId=${companyId}`);
     try {
       const co = await this.getCompany(companyId);
       const companyName = ((co || {}).fields || {})['Company Name'] || '';
+      console.info(`[getCompanyRoles] companyName='${companyName}'`);
+
       if (companyName) {
-        // For linked record fields, Airtable filterByFormula compares against the
-        // primary field value (display name) using simple equality.
         const nameEscaped = companyName.replace(/'/g, "\\'");
+        const formula = `{Company} = '${nameEscaped}'`;
+        console.info(`[getCompanyRoles] trying formula: ${formula}`);
         try {
-          const records = await this.roles.select({
-            filterByFormula: `{Company} = '${nameEscaped}'`,
-          }).all();
+          const records = await this.roles.select({ filterByFormula: formula }).all();
+          console.info(`[getCompanyRoles] formula returned ${records.length} record(s)`);
           if (records.length > 0) {
+            // Log first record's Company field to confirm its shape
+            console.info(`[getCompanyRoles] first record Company=${JSON.stringify(records[0].fields.Company)}`);
             return records.map(toDict).filter(_notConfidential);
           }
         } catch (e) {
-          console.warn(`getCompanyRoles formula failed for '${companyName}': ${e.message}`);
+          console.warn(`[getCompanyRoles] formula error: ${e.message}`);
         }
       }
-      // Fallback: fetch all roles and filter by linked company record ID in JS.
-      // The Airtable REST API returns linked record fields as arrays of record IDs.
+
+      // Fallback: full table scan filtered by linked record ID in JS
+      console.info(`[getCompanyRoles] falling back to full table scan`);
       const allRecords = await this.roles.select().all();
-      return allRecords.map(toDict).filter(_notConfidential).filter(r => {
+      console.info(`[getCompanyRoles] full table has ${allRecords.length} record(s)`);
+      // Log the Company field shape of the first record so we can see the actual type
+      if (allRecords.length > 0) {
+        const sample = allRecords[0];
+        console.info(`[getCompanyRoles] sample record "${sample.fields.Title}" Company=${JSON.stringify(sample.fields.Company)} (type=${typeof sample.fields.Company}, isArray=${Array.isArray(sample.fields.Company)})`);
+      }
+      const result = allRecords.map(toDict).filter(_notConfidential).filter(r => {
         const linked = (r.fields || {}).Company;
         return Array.isArray(linked) && linked.includes(companyId);
       });
+      console.info(`[getCompanyRoles] fallback result: ${result.length} record(s)`);
+      return result;
     } catch (err) {
-      console.warn(`getCompanyRoles failed for company '${companyId}': ${err.message}`);
+      console.warn(`[getCompanyRoles] failed for '${companyId}': ${err.message}`);
       return [];
     }
   }
