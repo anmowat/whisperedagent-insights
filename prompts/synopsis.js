@@ -125,7 +125,7 @@ ${body}
 Write a SHORT response (3-4 sentences max) that:
 1. Gives the most useful snapshot of the company — what makes it interesting right now.
 2. Notes any open roles briefly (just titles, no details dump).
-3. Ends with ONE natural, open question asking what they've learned or experienced with this company.
+3. Ends with ONE open, welcoming question inviting them to share what they've learned or heard about this company — make it easy for them to share anything, not just answer a specific question.
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 
@@ -209,17 +209,18 @@ HG6M Outlook: ${cf.HG6M || 'N/A'}`.trim();
     : '';
 
   let endingInstruction;
-  if (topGap && (mode === 'pro' || mode === 'premium')) {
+  if (mode === 'free') {
     endingInstruction = (
-      `You MUST end with ONE question specifically aimed at surfacing: ${topGap}. ` +
-      'Frame it as a natural, conversational question — not a form field. ' +
-      'Do NOT ask why the user wants the role or anything about their personal motivations.'
+      'End with ONE open, welcoming question inviting them to share what they\'ve learned ' +
+      'about this role from their conversations or research — make it easy to share anything, ' +
+      'not just a specific detail. Do NOT ask why the user wants the role or anything about their personal motivations.'
     );
   } else {
     endingInstruction = (
-      'End with ONE question asking what they know about the hiring process, timeline, ' +
-      'or how the search is being run. Do NOT ask why the user wants the role or ' +
-      'anything about their personal background or motivations.'
+      'End with ONE open, welcoming question inviting them to share what they\'ve learned ' +
+      'about this role from their conversations or research — make it easy for them to share ' +
+      'anything they know, not just a specific detail. ' +
+      'Do NOT ask why the user wants the role or anything about their personal background or motivations.'
     );
   }
 

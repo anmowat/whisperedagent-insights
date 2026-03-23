@@ -507,13 +507,13 @@ class InsightsAgent {
       state.phase = Phase.AWAITING_SHARE;
       if (mode === 'free') {
         return (
-          `Tell me what you already know about ${entityRef} from your research or conversations. ` +
-          "**Share what you've learned and I'll let you know what we have.**"
+          `We do have ${entityRef} in our database. ` +
+          "**What have you learned about it from your conversations or research — share anything you know and I'll confirm what we have.**"
         );
       } else { // pro
         return (
-          `Great — before I pull up what we have on ${entityRef}, ` +
-          "**what have you already learned from your conversations or research?**"
+          `We have ${entityRef} in our database. ` +
+          "**Before I share what we know, what have you already heard or learned about it?**"
         );
       }
     }
@@ -552,11 +552,10 @@ class InsightsAgent {
         state.phase = Phase.ROLE_FOUND;
         const ackPrompt = (
           `The user shared this about ${entity}: "${userText}"\n\n` +
-          '1. Warmly acknowledge their contribution in 1 sentence.\n' +
-          '2. Confirm that we do have this role in our database.\n' +
-          '3. Do NOT reveal any details we have about the role.\n' +
-          '4. Ask ONE natural follow-up question to learn more.\n' +
-          '5. In a final sentence, mention they can upgrade to Pro to see what we know.\n' +
+          '1. Warmly acknowledge their contribution in 1 sentence — be specific about what they shared, not generic.\n' +
+          '2. Confirm that we do have this role in our database, but do NOT reveal any details we have.\n' +
+          '3. Ask ONE follow-up question that builds naturally on what they shared — clarify something they mentioned or ask if they have any other information. Do NOT jump to a new unrelated topic.\n' +
+          '4. In a final sentence, mention they can upgrade to Pro to see what we know.\n' +
           'Bold only the question sentence using **double asterisks**. No other markdown.'
         );
         return await this._callClaude([{ role: 'user', content: ackPrompt }]);
@@ -571,9 +570,8 @@ class InsightsAgent {
         state.phase = Phase.COMPANY_FOUND;
         const ackPrompt = (
           `The user shared this about ${entity}: "${userText}"\n\n` +
-          '1. Warmly thank them for the insight in 1 sentence.\n' +
-          '2. Ask ONE focused follow-up question to gather more insider info ' +
-          '(culture, hiring process, leadership, recent changes).\n' +
+          '1. Warmly thank them for the insight in 1 sentence — be specific about what they shared.\n' +
+          '2. Ask ONE follow-up question that builds naturally on what they shared — clarify something they mentioned or ask if they have any other information. Do NOT jump to a completely unrelated topic.\n' +
           'Bold only the question sentence using **double asterisks**. No other markdown.'
         );
         return await this._callClaude([{ role: 'user', content: ackPrompt }]);
@@ -820,25 +818,23 @@ class InsightsAgent {
     const companyGaps = getCompanyGaps(mergedCompany);
 
     let system;
-    if (roleGaps.length > 0 || companyGaps.length > 0) {
-      const allGapDescs = [...roleGaps, ...companyGaps].map(([, desc]) => desc);
-      const gapList = allGapDescs.map((d, i) => `${i + 1}. ${d}`).join('\n');
-      system = (
-        SYSTEM_PROMPT +
-        '\n\nGaps we still want to fill (listed in priority order):\n' +
-        gapList +
-        '\n\nEnd with ONE question about whichever gap is most natural to ask about given the conversation so far. ' +
-        'If the user has already mentioned something relevant to a gap in this conversation, skip that gap and move to the next. ' +
-        'Frame it as a natural, conversational question — not a form field. ' +
-        'Do NOT ask why the user wants the role or anything about their personal motivations or background.'
-      );
-    } else {
-      system = (
-        SYSTEM_PROMPT +
-        '\n\nEnd with ONE question about the hiring process, timeline, or how the search is being run. ' +
-        'Do NOT ask why the user wants the role or anything about their personal background or motivations.'
-      );
-    }
+    const allGapDescs = [...roleGaps, ...companyGaps].map(([, desc]) => desc);
+    const gapContext = allGapDescs.length > 0
+      ? '\n\nInformation we are still looking to learn (use as background context only, not a questionnaire):\n' +
+        allGapDescs.map((d, i) => `${i + 1}. ${d}`).join('\n')
+      : '';
+
+    system = (
+      SYSTEM_PROMPT +
+      gapContext +
+      '\n\nRespond in 2-3 sentences. First, briefly acknowledge or build on something specific the user just shared — ' +
+      'be genuine and specific, not generic. ' +
+      'Then end with ONE follow-up question that either: ' +
+      '(a) naturally clarifies or expands on what they just said, or ' +
+      '(b) warmly asks if they have any other information to share. ' +
+      'Do NOT jump to a topic they have not brought up yet. ' +
+      'Do NOT ask why the user wants the role or anything about their personal background or motivations.'
+    );
 
     // Premium + role: ensure Claude always gives a brief overview of what we know
     if (state.mode === 'premium' && Object.keys(roleFields).length > 0) {
