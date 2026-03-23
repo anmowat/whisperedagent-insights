@@ -491,7 +491,7 @@ class InsightsAgent {
       // Closed → share all information regardless of tier.
       if (state.roleRecordId) {
         const roleRec = await this.db.findRoleById(state.roleRecordId);
-        const roleStatus = (((roleRec || {}).fields || {}).Status || '').toLowerCase();
+        const roleStatus = this._field((roleRec || {}).fields, 'Status').toLowerCase();
         if (roleStatus.includes('closed')) {
           const coRec = state.companyRecordId ? await this.db.getCompany(state.companyRecordId) : null;
           state.phase = Phase.ROLE_FOUND;
