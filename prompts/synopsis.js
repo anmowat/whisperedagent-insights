@@ -31,8 +31,8 @@ function buildCompanySynopsisPrompt(company, roles, insights, mode = 'premium', 
 Description:
 ${fields.Description || 'No description on file.'}
 
-HG6M (High-Growth 6-Month Outlook):
-${fields.HG6M || 'Not available.'}
+Headcount Growth % (last 6 months) — negative means headcount shrank, positive means it grew:
+${fields.HG6M != null && fields.HG6M !== '' ? fields.HG6M + '%' : 'Not available.'}
 
 Number of Employees: ${fields.Employees || 'Unknown'}
 Investors: ${investors || 'Unknown'}`.trim();
@@ -190,8 +190,9 @@ Notes: ${rf.Notes || 'None.'}`.trim();
     }
   }
 
+  const hg6m = cf.HG6M != null && cf.HG6M !== '' ? cf.HG6M + '%' : 'N/A';
   const companyContext = `Company Description: ${cf.Description || 'N/A'}
-HG6M Outlook: ${cf.HG6M || 'N/A'}`.trim();
+Headcount Growth % (last 6 months) — negative means headcount shrank, positive means it grew: ${hg6m}`.trim();
 
   let modeInstruction = '';
   if (mode === 'free') {

@@ -172,9 +172,9 @@ class AirtableClient {
       console.warn(`findCompany partial search failed for '${companyName}': ${err.message}`);
     }
 
-    // 3. Fuzzy fallback
+    // 3. Fuzzy fallback — fetch all fields so Domain etc. are present on returned records
     try {
-      const allRecords = await this.companies.select({ fields: ['Company Name'] }).all();
+      const allRecords = await this.companies.select().all();
       const nameToRecord = {};
       for (const r of allRecords) {
         const name = (r.fields['Company Name'] || '').toLowerCase();
@@ -285,9 +285,9 @@ class AirtableClient {
       console.warn(`findCompanies partial search failed for '${companyName}': ${err.message}`);
     }
 
-    // 3. Fuzzy fallback
+    // 3. Fuzzy fallback — fetch all fields so Domain etc. are present on returned records
     try {
-      const allRecords = await this.companies.select({ fields: ['Company Name'] }).all();
+      const allRecords = await this.companies.select().all();
       const nameToRecord = {};
       for (const r of allRecords) {
         const name = (r.fields['Company Name'] || '').toLowerCase();
