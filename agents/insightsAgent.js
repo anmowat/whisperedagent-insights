@@ -78,13 +78,12 @@ class InsightsAgent {
 
     if (mode === 'free') {
       greeting = (
-        `Hey ${userName}! I'm the Insights agent.\n\n` +
-        "Ask me about any company or role you're exploring and I'll share what public information we have. " +
-        'Upgrade to Pro to unlock full community insights.'
+        "Ask me about any company or role—I'll share available public info " +
+        "(upgrade for access to unposted roles + company insights).\n\n" +
+        "You can also contribute unposted roles or confidential insights to help the community—and earn discounts."
       );
     } else if (mode === 'pro') {
       greeting = (
-        `Hey ${userName}! I'm the Insights agent.\n\n` +
         "Tell me about a company or role you're exploring. " +
         "Share what you've learned and I'll pull up what we have — " +
         'your insights help the whole community.'
