@@ -188,14 +188,13 @@ class InsightsAgent {
       }
     }
 
-    // For weak/no DB matches run semantic matching.
+    // For weak/no DB matches try direct title substring matching.
     if (companyRecord && roleTitle && (matchType === 'notes' || matchType === 'none')) {
       const companyRoles = await this.db.getCompanyRoles(companyRecord.id);
       if (companyRoles.length > 0) {
         if (companyRoles.length === 1) {
           roleRecord = companyRoles[0];
         } else {
-          // Direct title substring match first
           const queryLower = roleTitle.toLowerCase();
           const titleHits = companyRoles.filter(r => {
             const title = this._field(r.fields, 'Title').toLowerCase();
@@ -203,14 +202,12 @@ class InsightsAgent {
           });
           if (titleHits.length === 1) {
             roleRecord = titleHits[0];
-          } else {
-            const candidates = await this._semanticRoleFilter(roleTitle, companyRoles);
-            if (candidates.length > 1) {
-              return this._askDisambiguate(state, companyRecord, candidates);
-            } else if (candidates.length === 1) {
-              roleRecord = candidates[0];
-            }
+          } else if (titleHits.length > 1) {
+            return this._askDisambiguate(state, companyRecord, titleHits);
           }
+          // titleHits === 0: no title match → fall through to role-not-found handling.
+          // (Semantic filter deliberately removed — it kept all GTM-adjacent roles as
+          // "plausibly related" which showed false disambiguation for genuinely new roles.)
         }
       }
     }
@@ -696,12 +693,27 @@ class InsightsAgent {
       }
     }
 
-    // Guard: if the user is clearly replying to the agent's last question, skip entity-switching.
-    // Exception: when in company-found mode with no active role, a role name always takes priority
+    // Detect "I have a new/another role" intent — respond warmly and set a flag so the
+    // next message (the role title) skips DB lookup and goes straight to collection.
+    if (state.companyRecordId && !state.roleRecordId && this._isNewRoleSignal(userText)) {
+      state.pendingNewRoleSignal = true;
+      const coRef = this._companyRef(state);
+      return (
+        `That's great — sounds like you know about a role at ${coRef} that we're not tracking yet. ` +
+        `**What's the role title?**`
+      );
+    }
+
+    // When in company-found mode with no active role, a role name always takes priority
     // so that "SDR leader" (answering "What's the role?") routes to collection rather than gap-fill.
     if (state.companyRecordId && !state.roleRecordId && !this._isRolesListIntent(userText)) {
       const parsed = await this._parseCompanyAndRole(userText);
       if (parsed.role && parsed.role.length >= 3) {
+        if (state.pendingNewRoleSignal) {
+          // User signalled new role intent — skip DB and go straight to collection
+          state.pendingNewRoleSignal = false;
+          return this._startNewEntityCollection(state, state.companyName, parsed.role, !!state.companyRecordId);
+        }
         state.phase = Phase.IDENTIFY;
         return this._handleIdentify(state, userText);
       }
@@ -909,6 +921,17 @@ class InsightsAgent {
   // ------------------------------------------------------------------
   // Roles listing (premium only)
   // ------------------------------------------------------------------
+
+  /** Returns true when the user signals they know about a new/unlisted role. */
+  _isNewRoleSignal(text) {
+    const lower = text.toLowerCase();
+    return (
+      /\b(new|another|different|also)\b.{0,35}\b(role|position|job|opening)\b/.test(lower) ||
+      /\b(role|position|job|opening)\b.{0,25}\b(new|another|not (tracked|listed|in your|in the))\b/.test(lower) ||
+      /\bi (have|know (about|of)|heard (about|of)|came across|found|saw)\b.{0,25}\b(role|position)\b/.test(lower) ||
+      /\bawar(e|eness) of\b.{0,25}\b(role|position)\b/.test(lower)
+    );
+  }
 
   _isRolesListIntent(text) {
     const low = text.toLowerCase();

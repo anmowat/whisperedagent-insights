@@ -44,6 +44,10 @@ class ConversationState {
     // step: 'confirm' | 'get_company' | 'domain' | 'find' | 'notes'
     this.pendingNewEntity = null;
 
+    // Set to true when user signals "I have a new/another role" so the next role name
+    // skips DB lookup and goes straight to the collection flow.
+    this.pendingNewRoleSignal = false;
+
     // Full message history for Claude
     this.messages = [];
   }
