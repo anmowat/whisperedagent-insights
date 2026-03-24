@@ -1264,6 +1264,15 @@ class InsightsAgent {
       const extracted = await this._extractFindAndNotes(userText, pe.roleTitle);
       pe.find = extracted.find || null;
       pe.notes = extracted.notes || null;
+      pe.step = 'follow_up';
+      return await this._generateNewRoleFollowUp(pe);
+    }
+
+    // ── Step: follow_up (one targeted question, then done) ─────────────
+    if (pe.step === 'follow_up') {
+      const extracted = await this._extractFindAndNotes(userText, pe.roleTitle);
+      if (extracted.find) pe.find = pe.find ? `${pe.find}; ${extracted.find}` : extracted.find;
+      if (extracted.notes) pe.notes = pe.notes ? `${pe.notes} ${extracted.notes}` : extracted.notes;
       return this._saveNewEntity(state);
     }
 
@@ -1295,6 +1304,33 @@ class InsightsAgent {
       console.debug(`_lookupDomain failed for '${companyName}'`);
     }
     return null;
+  }
+
+  /**
+   * Generate one targeted follow-up question based on what's still missing for the new role.
+   * Priority: how to find/apply → scope/location.
+   * @param {object} pe  pendingNewEntity
+   * @returns {Promise<string>}
+   */
+  async _generateNewRoleFollowUp(pe) {
+    const known = [
+      pe.find  ? `How to apply: ${pe.find}` : null,
+      pe.notes ? `Role details: ${pe.notes}` : null,
+    ].filter(Boolean).join('\n');
+
+    const prompt = (
+      `We're adding a new role to our database: "${pe.roleTitle}" at "${pe.companyName}".\n` +
+      (known ? `We already have:\n${known}\n\n` : '\n') +
+      'Ask ONE brief follow-up question to get the most important missing detail. Priority order:\n' +
+      (!pe.find ? '1. How to find or apply (recruiter name, LinkedIn, internal contact, job board)\n' : '') +
+      '2. Role scope, location, or key requirements if not yet clear\n' +
+      'Be warm and concise (1-2 sentences). Bold only the question with **double asterisks**.'
+    );
+    try {
+      return await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 128 });
+    } catch (e) {
+      return `**Anything else you know — how to find it or what scope/location looks like?**`;
+    }
   }
 
   /**
@@ -1338,43 +1374,39 @@ class InsightsAgent {
     state.companyDomain = pe.domain ? this._ensureHttps(pe.domain) : state.companyDomain;
     if (pe.roleTitle) state.roleTitle = pe.roleTitle;
 
-    // Push collected data to suggestedUpdates for the UI panel
+    // Push collected data to suggestedUpdates under distinct new_role / new_company keys
+    // so the UI panel can render them as "additions" rather than updates to existing records.
     if (!state.suggestedUpdates) state.suggestedUpdates = {};
-    state.suggestedUpdates.company_name = pe.companyName;
-    state.suggestedUpdates.role_name = pe.roleTitle || undefined;
 
     if (pe.companyName && !pe.hasExistingCompany) {
-      state.suggestedUpdates.company = {
-        ...(state.suggestedUpdates.company || {}),
+      state.suggestedUpdates.new_company = {
         'Company Name': pe.companyName,
         ...(pe.domain ? { 'Domain Dirty': pe.domain } : {}),
       };
     }
 
     if (pe.roleTitle) {
-      state.suggestedUpdates.role = {
-        ...(state.suggestedUpdates.role || {}),
+      state.suggestedUpdates.new_role = {
         Title: pe.roleTitle,
         Company: pe.companyName,
-        ...(pe.find ? { Find: pe.find } : {}),
+        ...(pe.find  ? { Find:  pe.find  } : {}),
         ...(pe.notes ? { Notes: pe.notes } : {}),
       };
     }
 
     state.pendingNewEntity = null;
 
+    // Transition to COMPANY_FOUND so the normal gap-filling loop doesn't restart.
+    state.phase = Phase.COMPANY_FOUND;
     const companyRef = this._companyRef(state);
 
     if (pe.roleTitle) {
-      state.phase = Phase.ROLE_FOUND;
       return (
         `Captured — **${pe.roleTitle}** at **${pe.companyName}** has been queued for our database. ` +
-        'Your contribution helps the whole community. ' +
-        `**Is there anything else you've learned about this role — hiring manager, team setup, or interview process?**`
+        'Thanks for the contribution!'
       );
     }
 
-    state.phase = Phase.COMPANY_FOUND;
     return (
       `Captured — **${pe.companyName}** has been queued for our database. ` +
       `**Is there a specific role at ${companyRef} you're exploring?**`

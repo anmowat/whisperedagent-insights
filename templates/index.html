@@ -277,6 +277,23 @@
       font-weight: 700;
     }
 
+    .update-section-header {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #6b7280;
+      margin-top: 10px;
+      padding-top: 8px;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .update-section-header:first-child {
+      margin-top: 0;
+      padding-top: 0;
+      border-top: none;
+    }
+
     /* ── Name modal ── */
     #name-modal {
       position: fixed;
@@ -468,6 +485,19 @@
     "Confidential Notes": "Confidential Notes",
   };
 
+  // Labels for newly-added entities (distinct from updates to existing records)
+  const NEW_ROLE_FIELD_LABELS = {
+    "Title":   "Title",
+    "Company": "Company",
+    "Find":    "How to Get In",
+    "Notes":   "Role Notes",
+  };
+
+  const NEW_COMPANY_FIELD_LABELS = {
+    "Company Name": "Company Name",
+    "Domain Dirty": "Domain",
+  };
+
   function clearUpdatesPanel() {
     updatesBody.innerHTML = "";
     showEmptyState();
@@ -487,19 +517,24 @@
 
     const roleName      = updates.role_name    || "Role";
     const companyName   = updates.company_name || "Company";
-    const roleFields    = updates.role    || {};
-    const companyFields = updates.company || {};
+    const roleFields    = updates.role         || {};
+    const companyFields = updates.company      || {};
+    const newRoleFields    = updates.new_role    || {};
+    const newCompanyFields = updates.new_company || {};
 
-    const hasRole    = Object.values(roleFields).some(Boolean);
-    const hasCompany = Object.values(companyFields).some(Boolean);
-    if (!hasRole && !hasCompany) return;
+    const hasRole       = Object.values(roleFields).some(Boolean);
+    const hasCompany    = Object.values(companyFields).some(Boolean);
+    const hasNewRole    = Object.values(newRoleFields).some(Boolean);
+    const hasNewCompany = Object.values(newCompanyFields).some(Boolean);
+
+    if (!hasRole && !hasCompany && !hasNewRole && !hasNewCompany) return;
 
     updatesBody.innerHTML = "";
 
+    // ── Updates to existing records ──────────────────────────────────
     for (const [field, label] of Object.entries(ROLE_FIELD_LABELS)) {
       const value = roleFields[field];
       if (!value) continue;
-      // "Role - Title / Company - Field Name"
       const key = `Role - ${roleName} / ${companyName} - ${label}`;
       updatesBody.appendChild(makeFieldRow(key, value));
     }
@@ -507,9 +542,33 @@
     for (const [field, label] of Object.entries(COMPANY_FIELD_LABELS)) {
       const value = companyFields[field];
       if (!value) continue;
-      // "Company - Company Name - Field Name"
       const key = `Company - ${companyName} - ${label}`;
       updatesBody.appendChild(makeFieldRow(key, value));
+    }
+
+    // ── New additions ────────────────────────────────────────────────
+    if (hasNewRole) {
+      const header = document.createElement("div");
+      header.className = "update-section-header";
+      header.textContent = "New Role";
+      updatesBody.appendChild(header);
+      for (const [field, label] of Object.entries(NEW_ROLE_FIELD_LABELS)) {
+        const value = newRoleFields[field];
+        if (!value) continue;
+        updatesBody.appendChild(makeFieldRow(label, value));
+      }
+    }
+
+    if (hasNewCompany) {
+      const header = document.createElement("div");
+      header.className = "update-section-header";
+      header.textContent = "New Company";
+      updatesBody.appendChild(header);
+      for (const [field, label] of Object.entries(NEW_COMPANY_FIELD_LABELS)) {
+        const value = newCompanyFields[field];
+        if (!value) continue;
+        updatesBody.appendChild(makeFieldRow(label, value));
+      }
     }
   }
 
