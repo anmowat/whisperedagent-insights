@@ -12,6 +12,7 @@ const Phase = Object.freeze({
   AWAITING_SHARE: 'AWAITING_SHARE',            // Basic mode: waiting for user to share what they know
   COMPANY_FOUND: 'COMPANY_FOUND',              // Synopsis shown, answering follow-ups
   ROLE_FOUND: 'ROLE_FOUND',                    // Role synopsis shown, answering follow-ups
+  COLLECTING_NEW_ENTITY: 'COLLECTING_NEW_ENTITY', // Collecting info to add a new company/role to the DB
 });
 
 class ConversationState {
@@ -37,6 +38,11 @@ class ConversationState {
 
     // Suggested field updates accumulated from the conversation (not written to Airtable)
     this.suggestedUpdates = {};
+
+    // Pending new entity being collected for DB insertion
+    // Shape: { companyName, roleTitle, domain, find, notes, step, hasExistingCompany }
+    // step: 'confirm' | 'get_company' | 'domain' | 'find' | 'notes'
+    this.pendingNewEntity = null;
 
     // Full message history for Claude
     this.messages = [];

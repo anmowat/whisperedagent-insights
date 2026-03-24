@@ -119,6 +119,8 @@ class InsightsAgent {
       reply = await this._handleDisambiguatingCompany(state, userText);
     } else if (state.phase === Phase.AWAITING_SHARE) {
       reply = await this._handleAwaitingShare(state, userText);
+    } else if (state.phase === Phase.COLLECTING_NEW_ENTITY) {
+      reply = await this._handleCollectingNewEntity(state, userText);
     } else if (state.phase === Phase.COMPANY_FOUND || state.phase === Phase.ROLE_FOUND) {
       reply = await this._handleFollowup(state, userText);
     } else {
@@ -214,12 +216,7 @@ class InsightsAgent {
     }
 
     if (!roleRecord && !companyRecord) {
-      const entity = companyName || roleTitle;
-      return (
-        `I don't have "${entity}" in our database yet. ` +
-        "Tell me what you know about it — what's the company, the role, " +
-        'and what have you learned from your conversations?'
-      );
+      return this._startNewEntityCollection(state, companyName, roleTitle, false);
     }
 
     // Premium: company found but no matching role → show other roles at this company
@@ -1098,11 +1095,7 @@ class InsightsAgent {
     const coRef = this._companyRef(state);
 
     if (!roles.length) {
-      return (
-        `I couldn't find a **${roleQuery}** role at ${coRef} — ` +
-        "and we don't have any other roles tracked there right now. " +
-        "Tell me what you know about it and I'll capture it."
-      );
+      return this._startNewEntityCollection(state, state.companyName, roleQuery, true);
     }
 
     const openRoles = roles.filter(
@@ -1121,6 +1114,222 @@ class InsightsAgent {
       `but here are the other roles we're tracking there:\n\n${roleLines.join('\n')}\n\n` +
       'Is one of these what you were looking for?'
     );
+  }
+
+  // ------------------------------------------------------------------
+  // New entity collection (company/role not in DB)
+  // ------------------------------------------------------------------
+
+  /**
+   * Initialise the COLLECTING_NEW_ENTITY phase and return the opening confirmation message.
+   * @param {object} state
+   * @param {string|null} companyName
+   * @param {string|null} roleTitle
+   * @param {boolean} hasExistingCompany  True when the company IS in the DB but the role is not
+   */
+  _startNewEntityCollection(state, companyName, roleTitle, hasExistingCompany) {
+    state.pendingNewEntity = {
+      companyName: companyName || null,
+      roleTitle: roleTitle || null,
+      domain: null,
+      find: null,
+      notes: null,
+      step: 'confirm',
+      hasExistingCompany,
+    };
+    state.phase = Phase.COLLECTING_NEW_ENTITY;
+
+    if (companyName && roleTitle) {
+      return (
+        `We don't have **${companyName}** or a **${roleTitle}** role in our database yet. ` +
+        `**Just to confirm — are you talking about the ${roleTitle} role at ${companyName}?**`
+      );
+    } else if (companyName) {
+      return (
+        `We don't have **${companyName}** in our database yet. ` +
+        `**Just to confirm — is that the company you're referring to?**`
+      );
+    } else {
+      return (
+        `We don't have **${roleTitle}** in our database yet. ` +
+        `**Just to confirm — is that the role you're asking about, and which company is it at?**`
+      );
+    }
+  }
+
+  async _handleCollectingNewEntity(state, userText) {
+    const pe = state.pendingNewEntity;
+    if (!pe) {
+      state.phase = Phase.IDENTIFY;
+      return this._handleIdentify(state, userText);
+    }
+
+    const lower = userText.toLowerCase().trim();
+    const isYes = /\b(yes|yeah|yep|correct|right|sure|exactly|yup|affirmative|that'?s?\s*(right|it|correct)?)\b/.test(lower);
+    const isNo = /\b(no|nope|not|wrong|different|other|never mind|nevermind)\b/.test(lower);
+
+    // ── Step: confirm ────────────────────────────────────────────────
+    if (pe.step === 'confirm') {
+      if (isNo) {
+        state.pendingNewEntity = null;
+        state.phase = Phase.IDENTIFY;
+        return `No problem — which company or role were you looking for?`;
+      }
+
+      // If we're missing the company name, the user may have provided it inline
+      if (!pe.companyName && !isYes) {
+        const parsed = await this._parseCompanyAndRole(userText);
+        if (parsed.company) pe.companyName = parsed.company;
+        if (parsed.role) pe.roleTitle = parsed.role;
+      }
+
+      if (!pe.companyName) {
+        pe.step = 'get_company';
+        return `**Which company is this role at?**`;
+      }
+
+      // Move to domain collection (skip if company already exists in DB)
+      if (pe.hasExistingCompany) {
+        if (!pe.roleTitle) {
+          pe.step = 'get_role';
+          return `**What's the title of the role you're asking about?**`;
+        }
+        pe.step = 'find';
+        return (
+          `Got it — **${pe.roleTitle}** at **${pe.companyName}**. We don't have that role yet. ` +
+          `**How do you find or apply for it? (recruiter contact, LinkedIn link, internal referral, etc.)**`
+        );
+      }
+
+      pe.step = 'domain';
+      const companyRef = pe.companyName;
+      if (pe.roleTitle) {
+        return (
+          `Got it — **${pe.roleTitle}** at **${companyRef}**. We'll add both. ` +
+          `**What's ${companyRef}'s website or domain?**`
+        );
+      }
+      return (
+        `Got it — **${companyRef}**. We'll add it. ` +
+        `**What's ${companyRef}'s website or domain?**`
+      );
+    }
+
+    // ── Step: get_company ─────────────────────────────────────────────
+    if (pe.step === 'get_company') {
+      const parsed = await this._parseCompanyAndRole(userText);
+      pe.companyName = parsed.company || userText.trim();
+      pe.step = 'domain';
+      return `**What's ${pe.companyName}'s website or domain?**`;
+    }
+
+    // ── Step: get_role ────────────────────────────────────────────────
+    if (pe.step === 'get_role') {
+      const parsed = await this._parseCompanyAndRole(userText);
+      pe.roleTitle = parsed.role || userText.trim();
+      pe.step = 'find';
+      return `**How do you find or apply for the ${pe.roleTitle} role? (recruiter contact, LinkedIn link, internal referral, etc.)**`;
+    }
+
+    // ── Step: domain ──────────────────────────────────────────────────
+    if (pe.step === 'domain') {
+      // Strip protocol and path — keep just the domain
+      const raw = userText.trim().replace(/^https?:\/\//, '').split('/')[0].trim();
+      pe.domain = raw || userText.trim();
+
+      if (pe.roleTitle) {
+        pe.step = 'find';
+        return `Thanks! **How do you find or apply for the ${pe.roleTitle} role? (recruiter contact, LinkedIn link, internal referral, etc.)**`;
+      }
+      // Company-only — save now
+      return this._saveNewEntity(state);
+    }
+
+    // ── Step: find ────────────────────────────────────────────────────
+    if (pe.step === 'find') {
+      pe.find = userText.trim() || null;
+      pe.step = 'notes';
+      return `Got it. **What do you know about the role? (scope, what they're looking for, hiring process, compensation, etc.)**`;
+    }
+
+    // ── Step: notes ───────────────────────────────────────────────────
+    if (pe.step === 'notes') {
+      pe.notes = userText.trim() || null;
+      return this._saveNewEntity(state);
+    }
+
+    // Fallback
+    state.phase = Phase.IDENTIFY;
+    return this._handleIdentify(state, userText);
+  }
+
+  async _saveNewEntity(state) {
+    const pe = state.pendingNewEntity;
+    if (!pe) {
+      state.phase = Phase.IDENTIFY;
+      return `Something went wrong — what company or role would you like to explore?`;
+    }
+
+    try {
+      let companyRecord = null;
+
+      if (!pe.hasExistingCompany && pe.companyName) {
+        companyRecord = await this.db.createCompany(pe.companyName, pe.domain);
+      } else if (state.companyRecordId) {
+        // Company already exists — fetch its record so we can link the role
+        companyRecord = await this.db.getCompany(state.companyRecordId);
+      }
+
+      let roleRecord = null;
+      if (pe.roleTitle) {
+        roleRecord = await this.db.createRole(
+          companyRecord ? companyRecord.id : null,
+          pe.roleTitle,
+          pe.find,
+          pe.notes,
+        );
+      }
+
+      // Update conversation state
+      if (companyRecord) {
+        state.companyRecordId = companyRecord.id;
+        state.companyName = pe.companyName || this._field(companyRecord.fields, 'Company Name');
+        const rawDomain = pe.domain || this._field(companyRecord.fields, 'Domain');
+        state.companyDomain = rawDomain ? this._ensureHttps(rawDomain) : null;
+      }
+      if (roleRecord) {
+        state.roleRecordId = roleRecord.id;
+        state.roleTitle = pe.roleTitle;
+      }
+
+      state.pendingNewEntity = null;
+
+      const companyRef = this._companyRef(state);
+
+      if (roleRecord) {
+        state.phase = Phase.ROLE_FOUND;
+        return (
+          `Added — **${pe.roleTitle}** at **${pe.companyName}** is now in our database. ` +
+          'Your contribution helps the whole community. ' +
+          `**Is there anything else you've learned about this role — hiring manager, team setup, or interview process?**`
+        );
+      }
+      if (companyRecord) {
+        state.phase = Phase.COMPANY_FOUND;
+        return (
+          `Added — **${pe.companyName}** is now in our database. ` +
+          `**Is there a specific role at ${companyRef} you're exploring?**`
+        );
+      }
+
+      state.phase = Phase.IDENTIFY;
+      return `Thanks for the info! **What would you like to explore next?**`;
+    } catch (err) {
+      console.warn(`_saveNewEntity failed: ${err.message}`);
+      state.pendingNewEntity = null;
+      state.phase = Phase.IDENTIFY;
+      return `I ran into an issue saving that to our database. **What else can I help you with?**`;
+    }
   }
 
   async _simpleMerge(fieldName, existing, newInfo) {

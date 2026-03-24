@@ -3,8 +3,6 @@
 /**
  * Airtable client for the Insights agent database operations.
  *
- * READ-ONLY. Write methods are intentionally absent.
- *
  * Tables:
  * - Companies (tblk2Et7RYIVCWRzD): company profiles
  * - Roles: open positions linked to companies
@@ -402,6 +400,52 @@ class AirtableClient {
       return toDict(record);
     } catch (err) {
       console.warn(`findRoleById failed for '${recordId}': ${err.message}`);
+      return null;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Write operations
+  // -------------------------------------------------------------------------
+
+  /**
+   * Create a new Company record.
+   * @param {string} companyName
+   * @param {string|null} domainDirty  Raw domain string (e.g. 'acme.com')
+   * @returns {Promise<object|null>}
+   */
+  async createCompany(companyName, domainDirty) {
+    try {
+      const fields = { 'Company Name': companyName };
+      if (domainDirty) fields['Domain Dirty'] = domainDirty;
+      const record = await this.companies.create(fields);
+      console.info(`createCompany: created '${companyName}' → ${record.id}`);
+      return toDict(record);
+    } catch (err) {
+      console.warn(`createCompany failed for '${companyName}': ${err.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Create a new Role record linked to a company.
+   * @param {string|null} companyRecordId  Airtable record ID for the linked company
+   * @param {string} roleTitle
+   * @param {string|null} find   How to find/apply for the role
+   * @param {string|null} notes  Role details
+   * @returns {Promise<object|null>}
+   */
+  async createRole(companyRecordId, roleTitle, find, notes) {
+    try {
+      const fields = { 'Title': roleTitle };
+      if (companyRecordId) fields['Company'] = [companyRecordId];
+      if (find) fields['Find'] = find;
+      if (notes) fields['Notes'] = notes;
+      const record = await this.roles.create(fields);
+      console.info(`createRole: created '${roleTitle}' → ${record.id}`);
+      return toDict(record);
+    } catch (err) {
+      console.warn(`createRole failed for '${roleTitle}': ${err.message}`);
       return null;
     }
   }
