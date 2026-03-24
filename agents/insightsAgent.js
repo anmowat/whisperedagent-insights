@@ -413,7 +413,11 @@ class InsightsAgent {
     }
 
     if (!chosen) {
-      return "I didn't catch which one you meant — could you clarify which company you're referring to?";
+      // User didn't pick from the list — they may have said "none of these" or
+      // named a different company altogether. Escape disambiguation and re-parse.
+      state.candidateCompanyIds = [];
+      state.phase = Phase.IDENTIFY;
+      return await this._handleIdentify(state, userText);
     }
 
     state.candidateCompanyIds = [];

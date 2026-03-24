@@ -180,7 +180,7 @@ class AirtableClient {
         const name = (r.fields['Company Name'] || '').toLowerCase();
         if (name) nameToRecord[name] = toDict(r);
       }
-      const matches = getCloseMatches(companyName.toLowerCase(), Object.keys(nameToRecord), 1, 0.6);
+      const matches = getCloseMatches(companyName.toLowerCase(), Object.keys(nameToRecord), 1, 0.5);
       if (matches.length > 0) {
         console.info(`findCompany fuzzy match for '${companyName}' → '${matches[0]}'`);
         return nameToRecord[matches[0]];
@@ -293,7 +293,7 @@ class AirtableClient {
         const name = (r.fields['Company Name'] || '').toLowerCase();
         if (name) nameToRecord[name] = toDict(r);
       }
-      const matches = getCloseMatches(companyName.toLowerCase(), Object.keys(nameToRecord), 3, 0.6);
+      const matches = getCloseMatches(companyName.toLowerCase(), Object.keys(nameToRecord), 3, 0.5);
       return matches.map(m => nameToRecord[m]);
     } catch (err) {
       console.warn(`findCompanies fuzzy fallback failed for '${companyName}': ${err.message}`);
