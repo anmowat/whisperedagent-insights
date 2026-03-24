@@ -1222,17 +1222,24 @@ class InsightsAgent {
     );
     const coRef = this._companyRef(state);
 
+    // Focus the summary on open roles only — closed roles accumulate over time and
+    // would overwhelm the message. We still surface them if explicitly asked.
+    const openRoles = existingRoles.filter(
+      r => this._field(r.fields, 'Status').toLowerCase() !== 'closed'
+    );
+    const openCount = openRoles.length;
+
     let roleSummary;
-    if (existingRoles.length === 0) {
-      roleSummary = "we're not tracking any roles there yet";
-    } else if (existingRoles.length === 1) {
-      const title = this._field(existingRoles[0].fields, 'Title');
-      roleSummary = `we're tracking 1 role (${title})`;
-    } else if (existingRoles.length <= 3) {
-      const titles = existingRoles.map(r => this._field(r.fields, 'Title')).join(', ');
-      roleSummary = `we're tracking ${existingRoles.length} roles (${titles})`;
+    if (openCount === 0) {
+      roleSummary = "we're not tracking any open roles there yet";
+    } else if (openCount === 1) {
+      const title = this._field(openRoles[0].fields, 'Title');
+      roleSummary = `we're tracking 1 open role (${title})`;
+    } else if (openCount <= 3) {
+      const titles = openRoles.map(r => this._field(r.fields, 'Title')).join(', ');
+      roleSummary = `we're tracking ${openCount} open roles (${titles})`;
     } else {
-      roleSummary = `we're tracking ${existingRoles.length} roles`;
+      roleSummary = `we're tracking ${openCount} open roles`;
     }
 
     // Set up collection state (hasExistingCompany=true so domain isn't re-asked)
