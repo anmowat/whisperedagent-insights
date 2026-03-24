@@ -704,16 +704,33 @@ class InsightsAgent {
       );
     }
 
+    // When pendingNewRoleSignal is set, handle the next message carefully:
+    // the user may provide a role title, a company correction, or both.
+    if (state.pendingNewRoleSignal && !this._isRolesListIntent(userText)) {
+      const parsed = await this._parseCompanyAndRole(userText);
+
+      // Company correction (with or without role title) — update state first
+      if (parsed.company && parsed.company.toLowerCase() !== (state.companyName || '').toLowerCase()) {
+        await this._updateStateCompany(state, parsed.company);
+      }
+
+      if (parsed.role && parsed.role.length >= 3) {
+        state.pendingNewRoleSignal = false;
+        return this._startNewEntityCollection(state, state.companyName, parsed.role, !!state.companyRecordId);
+      }
+
+      if (parsed.company) {
+        // Company correction with no role title yet — re-ask for the role
+        const coRef = this._companyRef(state);
+        return `Got it — **${coRef}**. **What's the role title?**`;
+      }
+    }
+
     // When in company-found mode with no active role, a role name always takes priority
     // so that "SDR leader" (answering "What's the role?") routes to collection rather than gap-fill.
     if (state.companyRecordId && !state.roleRecordId && !this._isRolesListIntent(userText)) {
       const parsed = await this._parseCompanyAndRole(userText);
       if (parsed.role && parsed.role.length >= 3) {
-        if (state.pendingNewRoleSignal) {
-          // User signalled new role intent — skip DB and go straight to collection
-          state.pendingNewRoleSignal = false;
-          return this._startNewEntityCollection(state, state.companyName, parsed.role, !!state.companyRecordId);
-        }
         state.phase = Phase.IDENTIFY;
         return this._handleIdentify(state, userText);
       }
@@ -903,6 +920,20 @@ class InsightsAgent {
   _ensureHttps(url) {
     if (!url) return url;
     return (url.startsWith('http://') || url.startsWith('https://')) ? url : 'https://' + url;
+  }
+
+  /** Look up companyName in the DB and update state; falls back to name-only if not found. */
+  async _updateStateCompany(state, companyName) {
+    const companyRecord = await this.db.findCompany(companyName);
+    if (companyRecord) {
+      state.companyRecordId = companyRecord.id;
+      state.companyName = this._field(companyRecord.fields, 'Company Name');
+      state.companyDomain = this._ensureHttps(this._field(companyRecord.fields, 'Domain').trim());
+    } else {
+      state.companyRecordId = null;
+      state.companyName = companyName;
+      state.companyDomain = null;
+    }
   }
 
   _companyRef(state) {
