@@ -48,6 +48,11 @@ class ConversationState {
     // skips DB lookup and goes straight to the collection flow.
     this.pendingNewRoleSignal = false;
 
+    // Counts followup questions asked after a company/role synopsis.
+    // Capped at 2: one open-ended question (from synopsis or "What can you share?")
+    // and one gap-hinting followup. After the user answers the second, we wrap up.
+    this.insightFollowupsAsked = 0;
+
     // Full message history for Claude
     this.messages = [];
   }

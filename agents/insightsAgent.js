@@ -411,6 +411,8 @@ class InsightsAgent {
 
   async _dispatchAfterMatch(state, userText) {
     const mode = state.mode;
+    // Fresh entity match — reset the followup counter so we ask at most 2 questions.
+    state.insightFollowupsAsked = 0;
 
     // Confidential roles must never be shown regardless of tier — treat as not found.
     if (state.roleRecordId) {
@@ -543,6 +545,7 @@ class InsightsAgent {
 
       if (mode === 'free') {
         state.phase = Phase.ROLE_FOUND;
+        state.insightFollowupsAsked = 1; // This response contains the one followup we ask
         const ackPrompt = (
           `The user shared this about ${entity}: "${userText}"\n\n` +
           '1. Warmly acknowledge their contribution in 1 sentence — be specific about what they shared, not generic.\n' +
@@ -561,6 +564,7 @@ class InsightsAgent {
 
       if (mode === 'free') {
         state.phase = Phase.COMPANY_FOUND;
+        state.insightFollowupsAsked = 1; // This response contains the one followup we ask
         const ackPrompt = (
           `The user shared this about ${entity}: "${userText}"\n\n` +
           '1. Warmly thank them for the insight in 1 sentence — be specific about what they shared.\n' +
@@ -574,6 +578,8 @@ class InsightsAgent {
       state.phase = Phase.COMPANY_FOUND;
     }
 
+    // The synopsis already contains an embedded question (Q2), so mark one followup spent.
+    state.insightFollowupsAsked = 1;
     const ackPrompt = (
       `The user just shared this about ${entity}: "${userText}"\n\n` +
       'Acknowledge what they shared in 1 sentence (be specific and appreciative), ' +
@@ -740,6 +746,12 @@ class InsightsAgent {
       const clarification = await this._attributionClarification(state, userText);
       if (clarification) return clarification;
       await this._extractAndAccumulate(state, userText);
+      // After the user has answered our followup question, wrap up instead of peppering
+      // them with more questions. The synopsis already asked Q1; we ask one more (Q2).
+      if (state.insightFollowupsAsked >= 1) {
+        return this._buildInsightWrapUp(state);
+      }
+      state.insightFollowupsAsked++;
       return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
     }
 
@@ -806,6 +818,10 @@ class InsightsAgent {
     const clarification = await this._attributionClarification(state, userText);
     if (clarification) return clarification;
     await this._extractAndAccumulate(state, userText);
+    if (state.insightFollowupsAsked >= 1) {
+      return this._buildInsightWrapUp(state);
+    }
+    state.insightFollowupsAsked++;
     return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
   }
 
@@ -890,10 +906,10 @@ class InsightsAgent {
       gapContext +
       '\n\nRespond in 2-3 sentences. First, briefly acknowledge or build on something specific the user just shared — ' +
       'be genuine and specific, not generic. ' +
-      'Then end with ONE follow-up question that either: ' +
-      '(a) naturally clarifies or expands on what they just said, or ' +
-      '(b) warmly asks if they have any other information to share. ' +
-      'Do NOT jump to a topic they have not brought up yet. ' +
+      'Then end with ONE broad, friendly follow-up question. ' +
+      'If there are information gaps listed above, name 2-3 of them as examples of things we would love to know, ' +
+      'and invite the user to share anything they know on any of those areas — do NOT ask a single narrow question about just one gap. ' +
+      'If there are no gaps, simply ask whether they have anything else to share about the company or role. ' +
       'Do NOT ask why the user wants the role or anything about their personal background or motivations.'
     );
 
@@ -920,6 +936,15 @@ class InsightsAgent {
   _ensureHttps(url) {
     if (!url) return url;
     return (url.startsWith('http://') || url.startsWith('https://')) ? url : 'https://' + url;
+  }
+
+  /** Thank the user and invite them to bring up another company or role. */
+  _buildInsightWrapUp(state) {
+    const entity = (state.roleTitle ? `${state.roleTitle} at ` : '') + (state.companyName || 'that');
+    return (
+      `Thanks so much for sharing — this is really helpful for ${entity}! ` +
+      `**Are there other companies or roles I can help you with?**`
+    );
   }
 
   /** Look up companyName in the DB and update state; falls back to name-only if not found. */
