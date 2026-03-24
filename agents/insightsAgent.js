@@ -196,7 +196,10 @@ class InsightsAgent {
 
     // For weak/no DB matches try direct title substring matching.
     if (companyRecord && roleTitle && (matchType === 'notes' || matchType === 'none')) {
-      const companyRoles = await this.db.getCompanyRoles(companyRecord.id);
+      const companyRoles = this._rolesForTier(
+        await this.db.getCompanyRoles(companyRecord.id),
+        state.mode
+      );
       if (companyRoles.length > 0) {
         if (companyRoles.length === 1) {
           roleRecord = companyRoles[0];
@@ -427,13 +430,21 @@ class InsightsAgent {
     // Fresh entity match — reset the followup counter so we ask at most 2 questions.
     state.insightFollowupsAsked = 0;
 
-    // Confidential roles must never be shown regardless of tier — treat as not found.
+    // Roles not visible to this tier — treat as not found.
     if (state.roleRecordId) {
       const roleRec = await this.db.findRoleById(state.roleRecordId);
-      if (this._isConfidential(roleRec)) {
+      if (!this._roleVisibleToTier(roleRec, mode)) {
         state.roleRecordId = null;
         state.roleTitle = null;
         const coRef = this._companyRef(state);
+        // Members-only role + free tier: don't even hint it exists
+        if (this._roleStatus(roleRec) === 'members-only') {
+          return (
+            `I don't have that role in our public database. ` +
+            `**Upgrade to Pro for access to unposted and whispered roles.**`
+          );
+        }
+        // Confidential: generic not-found response
         if (coRef) {
           return (
             `I don't have that specific role in our database. ` +
@@ -459,7 +470,9 @@ class InsightsAgent {
     if (mode === 'free' && !state.roleRecordId) {
       state.phase = Phase.COMPANY_FOUND;
       if (rolesListIntent) {
-        const roles = await this.db.getCompanyRoles(state.companyRecordId);
+        const roles = this._rolesForTier(
+          await this.db.getCompanyRoles(state.companyRecordId), 'free'
+        );
         const count = roles.length;
         const noun = count === 1 ? 'role' : 'roles';
         const coRef = this._companyRef(state);
@@ -480,7 +493,9 @@ class InsightsAgent {
     if (mode === 'free' || mode === 'pro') {
       if (mode === 'pro' && rolesListIntent) {
         state.phase = Phase.COMPANY_FOUND;
-        const roles = await this.db.getCompanyRoles(state.companyRecordId);
+        const roles = this._rolesForTier(
+          await this.db.getCompanyRoles(state.companyRecordId), 'pro'
+        );
         const count = roles.length;
         const noun = count === 1 ? 'role' : 'roles';
         const coRef = this._companyRef(state);
@@ -662,7 +677,9 @@ class InsightsAgent {
   async _handleFollowup(state, userText) {
     // Role selection by number or name: user replied with a number or partial role name after a roles listing.
     if (state.companyRecordId && !state.roleRecordId) {
-      const roles = await this.db.getCompanyRoles(state.companyRecordId);
+      const roles = this._rolesForTier(
+        await this.db.getCompanyRoles(state.companyRecordId), state.mode
+      );
       let picked = null;
       const numMatch = userText.trim().match(/^#?(\d+)$/);
       if (numMatch) {
@@ -691,7 +708,9 @@ class InsightsAgent {
       if (state.mode === 'premium') {
         return await this._listCompanyRoles(state);
       } else {
-        const roles = await this.db.getCompanyRoles(state.companyRecordId);
+        const roles = this._rolesForTier(
+          await this.db.getCompanyRoles(state.companyRecordId), state.mode
+        );
         const count = roles.length;
         const noun = count === 1 ? 'role' : 'roles';
         const coRef = this._companyRef(state);
@@ -812,7 +831,9 @@ class InsightsAgent {
 
     // "Tell me more about that role" — pronominal reference
     if (!state.roleRecordId && state.companyRecordId && this._isRoleInfoRequest(userText)) {
-      const companyRoles = await this.db.getCompanyRoles(state.companyRecordId);
+      const companyRoles = this._rolesForTier(
+        await this.db.getCompanyRoles(state.companyRecordId), state.mode
+      );
       let matched = null;
       if (companyRoles.length === 1) {
         matched = companyRoles[0];
@@ -1051,7 +1072,7 @@ class InsightsAgent {
   // ------------------------------------------------------------------
 
   async _generateCompanySynopsis(companyRecord, mode = 'premium', state = null) {
-    const roles = await this.db.getCompanyRoles(companyRecord.id);
+    const roles = this._rolesForTier(await this.db.getCompanyRoles(companyRecord.id), mode);
     const companyUrl = state ? (state.companyDomain || '') : '';
     const prompt = buildCompanySynopsisPrompt(companyRecord, roles, [], mode, companyUrl);
     return await this._callClaude([{ role: 'user', content: prompt }]);
@@ -1194,8 +1215,11 @@ class InsightsAgent {
     const rawDomain = this._field(companyRecord.fields, 'Domain');
     state.companyDomain = this._ensureHttps(rawDomain.trim());
 
-    // Fetch existing roles so we can tell the user what we DO have
-    const existingRoles = await this.db.getCompanyRoles(companyRecord.id);
+    // Fetch existing roles visible to this tier so we can tell the user what we DO have
+    const existingRoles = this._rolesForTier(
+      await this.db.getCompanyRoles(companyRecord.id),
+      state.mode
+    );
     const coRef = this._companyRef(state);
 
     let roleSummary;
@@ -1566,9 +1590,37 @@ class InsightsAgent {
   // Claude helpers
   // ------------------------------------------------------------------
 
+  /**
+   * Classify a role's Status field into one of three visibility tiers:
+   *   'public'       — Posted (any variant) or Closed: share name with all tiers
+   *   'members-only' — Whispered Role™, Unposted-Rumor/Recruiter/Company/Future: Pro/Premium only
+   *   'confidential' — Unposted-Confidential: never share with anyone
+   */
+  _roleStatus(role) {
+    const raw = this._field((role || {}).fields, 'Status', '');
+    const s = (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim();
+    if (s.includes('confidential')) return 'confidential';
+    if (s === 'closed') return 'public';
+    if (s === 'posted' || s.startsWith('posted')) return 'public';
+    // Whispered Role™, Unposted-Rumor, Unposted-Recruiter, Unposted-Company, Unposted-Future
+    return 'members-only';
+  }
+
+  /** Returns true if a role should be surfaced to a user at the given tier. */
+  _roleVisibleToTier(role, mode) {
+    const s = this._roleStatus(role);
+    if (s === 'confidential') return false;
+    if (s === 'members-only') return mode === 'pro' || mode === 'premium';
+    return true; // public: Posted + Closed visible to all tiers
+  }
+
+  /** Filter a roles array to only those visible at the given tier. */
+  _rolesForTier(roles, mode) {
+    return roles.filter(r => this._roleVisibleToTier(r, mode));
+  }
+
   _isConfidential(role) {
-    const status = this._field((role || {}).fields, 'Status', '').toLowerCase();
-    return status.includes('confidential');
+    return this._roleStatus(role) === 'confidential';
   }
 
   _field(recordFields, key, defaultVal = '') {
