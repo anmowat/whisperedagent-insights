@@ -91,10 +91,9 @@ class InsightsAgent {
       );
     } else { // premium
       greeting = (
-        `Hey ${userName}! I'm the Insights agent.\n\n` +
-        "Which company or role do you want to know about? " +
-        "I'll share what we have and we can compare notes.\n\n" +
-        'For example: "Airtable" or "VP of RevOps at Airtable".'
+        "Which company/role are you interested in? " +
+        "I can share what we have and we can compare notes.\n\n" +
+        "And, if you have a role to share I can add it to the database for you."
       );
     }
 
@@ -142,6 +141,14 @@ class InsightsAgent {
     const roleTitle = parsed.role;
 
     if (!companyName && !roleTitle) {
+      // User may be signalling they want to contribute a new role without naming it yet
+      if (this._isNewRoleSignal(userText)) {
+        state.pendingNewRoleSignal = true;
+        return (
+          "Great — **what's the company and role title?** For example: " +
+          '"VP of Sales at Acme Corp".'
+        );
+      }
       return (
         "I didn't catch a company or role name there. " +
         '**Could you try again? For example: "Acme Corp" or "Product Manager at Acme Corp".**'
@@ -228,6 +235,13 @@ class InsightsAgent {
       state.companyDomain = this._ensureHttps(rawDomain.trim());
     } else if (companyName) {
       state.companyName = companyName;
+    }
+
+    // Company found but user signalled they want to contribute a new role → ask for the title
+    if (companyRecord && !roleRecord && !roleTitle && this._isNewRoleSignal(userText)) {
+      state.pendingNewRoleSignal = true;
+      const coRef = this._companyRef(state);
+      return `Got it — **what's the role title at ${coRef}?**`;
     }
 
     if (roleRecord) {
@@ -985,7 +999,9 @@ class InsightsAgent {
       /\b(new|another|different|also)\b.{0,35}\b(role|position|job|opening)\b/.test(lower) ||
       /\b(role|position|job|opening)\b.{0,25}\b(new|another|not (tracked|listed|in your|in the))\b/.test(lower) ||
       /\bi (have|know (about|of)|heard (about|of)|came across|found|saw)\b.{0,25}\b(role|position)\b/.test(lower) ||
-      /\bawar(e|eness) of\b.{0,25}\b(role|position)\b/.test(lower)
+      /\bawar(e|eness) of\b.{0,25}\b(role|position)\b/.test(lower) ||
+      /\b(add|submit|contribute|share)\b.{0,25}\b(role|position|job|opening)\b/.test(lower) ||
+      /\b(role|position|job|opening)\b.{0,25}\b(to add|to submit|to contribute|to share)\b/.test(lower)
     );
   }
 
