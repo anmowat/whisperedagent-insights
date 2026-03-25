@@ -130,7 +130,7 @@ ${body}
 Write a SHORT response (3-4 sentences max) that:
 1. Gives the most useful snapshot of the company — what makes it interesting right now.
 2. Notes any open roles briefly (just titles, no details dump).
-3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they're in, or their leadership. Do NOT ask about the user's personal connection to the company.
+3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they're in, or their leadership. Do NOT ask whether the user knows anyone there or has a personal connection to the company.
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 
