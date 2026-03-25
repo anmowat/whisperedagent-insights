@@ -18,7 +18,7 @@
  * @param {string} companyUrl
  * @returns {string}
  */
-function buildCompanySynopsisPrompt(company, roles, insights, mode = 'premium', companyUrl = '', unpostedCount = 0) {
+function buildCompanySynopsisPrompt(company, roles, insights, mode = 'premium', companyUrl = '', rolesSummary = null) {
   const fields = company.fields || {};
   const companyName = fields['Company Name'] || 'Unknown';
   const companyRef = companyUrl ? `[${companyName}](${companyUrl})` : companyName;
@@ -45,12 +45,21 @@ Investors: ${investors || 'Unknown'}`.trim();
   }
 
   let rolesSection;
-  if ((roles && roles.length > 0) || unpostedCount > 0) {
-    const roleLines = (roles || []).map(r => {
+  if (mode === 'free' && rolesSummary) {
+    // Free tier: show counts only — don't reveal titles, don't explain unposted roles
+    const { activeCount = 0, closedCount = 0 } = rolesSummary;
+    if (activeCount > 0) {
+      const noun = activeCount === 1 ? 'open role' : 'open roles';
+      rolesSection = `OPEN ROLES: ${activeCount} ${noun} currently tracked.`;
+    } else if (closedCount > 0) {
+      const noun = closedCount === 1 ? 'role' : 'roles';
+      rolesSection = `OPEN ROLES: No open roles right now. ${closedCount} previously closed ${noun} on file.`;
+    } else {
+      rolesSection = 'OPEN ROLES: No roles currently tracked.';
+    }
+  } else if (roles && roles.length > 0) {
+    const roleLines = roles.map(r => {
       const rf = r.fields || {};
-      if (mode === 'free') {
-        return `- ${rf.Title || 'Untitled'}`;
-      }
       const regionArr = rf.Region || [];
       const region = Array.isArray(regionArr) ? regionArr.join(', ') : regionArr;
       return (
@@ -63,11 +72,6 @@ Investors: ${investors || 'Unknown'}`.trim();
         `Notes: ${rf.Notes || ''}`
       );
     });
-    // Free tier: append placeholder lines for members-only (unposted) roles
-    if (mode === 'free' && unpostedCount > 0) {
-      const noun = unpostedCount === 1 ? 'unposted role' : 'unposted roles';
-      roleLines.push(`- ${unpostedCount} ${noun} (available only for paid members)`);
-    }
     rolesSection = 'OPEN ROLES:\n' + roleLines.join('\n');
   } else {
     rolesSection = 'OPEN ROLES: No open roles currently tracked.';
@@ -102,11 +106,8 @@ Investors: ${investors || 'Unknown'}`.trim();
   if (mode === 'free') {
     modeInstruction = (
       'IMPORTANT: This is a Free-tier response. Share only public information ' +
-      '(description, headcount, investors, open role titles). Do NOT mention ' +
-      'confidential notes or community insights. ' +
-      'If unposted roles appear in OPEN ROLES, acknowledge them but explain why they are members-only: ' +
-      'executives and recruiters share these sensitive, unannounced roles with us because they trust our ' +
-      "community's talent bar and that the roles won't leak — so we only share them with paid members."
+      '(description, headcount, investors, role counts). Do NOT mention ' +
+      'confidential notes, community insights, or role titles.'
     );
   } else if (mode === 'pro') {
     modeInstruction = (

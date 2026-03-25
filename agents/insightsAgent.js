@@ -476,18 +476,24 @@ class InsightsAgent {
     if (mode === 'free' && !state.roleRecordId) {
       state.phase = Phase.COMPANY_FOUND;
       if (rolesListIntent) {
-        const roles = this._rolesForTier(
-          await this.db.getCompanyRoles(state.companyRecordId), 'free'
-        );
-        const count = roles.length;
-        const noun = count === 1 ? 'role' : 'roles';
+        const allRoles = await this.db.getCompanyRoles(state.companyRecordId);
+        const activeCount = allRoles.filter(r => this._roleIsActive(r)).length;
+        const closedCount = allRoles.filter(r => {
+          const raw = this._field((r.fields || {}), 'Status', '');
+          return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() === 'closed';
+        }).length;
         const coRef = this._companyRef(state);
-        if (count) {
+        if (activeCount > 0) {
+          const noun = activeCount === 1 ? 'role' : 'roles';
           return (
-            `We do have ${count} ${noun} tracked for ${coRef}. ` +
+            `We do have ${activeCount} active ${noun} tracked for ${coRef}. ` +
             'These are roles shared with us in confidence — executives and recruiters trust our community\'s talent bar and discretion with sensitive, unannounced openings, so we only share them with paid members. ' +
             '**Become a paid member to see the role titles and hiring details.**'
           );
+        }
+        if (closedCount > 0) {
+          const noun = closedCount === 1 ? 'role' : 'roles';
+          return `We have ${closedCount} previously tracked ${noun} for ${coRef}, but they're all closed at the moment. **Become a paid member to get notified when new roles open up.**`;
         }
         return `I don't have any roles tracked for ${coRef} at the moment.`;
       }
@@ -1080,13 +1086,17 @@ class InsightsAgent {
   async _generateCompanySynopsis(companyRecord, mode = 'premium', state = null) {
     const allRoles = await this.db.getCompanyRoles(companyRecord.id);
     const roles = this._rolesForTier(allRoles, mode);
-    // For free tier, also surface the count of members-only roles so the prompt
-    // can acknowledge them without revealing titles.
-    const unpostedCount = mode === 'free'
-      ? allRoles.filter(r => this._roleStatus(r) === 'members-only').length
-      : 0;
     const companyUrl = state ? (state.companyDomain || '') : '';
-    const prompt = buildCompanySynopsisPrompt(companyRecord, roles, [], mode, companyUrl, unpostedCount);
+    // For free synopsis, pass counts so the prompt shows "N open roles" or "X closed"
+    // without revealing titles or proactively explaining unposted roles.
+    const rolesSummary = mode === 'free' ? {
+      activeCount: allRoles.filter(r => this._roleIsActive(r)).length,
+      closedCount: allRoles.filter(r => {
+        const raw = this._field((r.fields || {}), 'Status', '');
+        return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() === 'closed';
+      }).length,
+    } : null;
+    const prompt = buildCompanySynopsisPrompt(companyRecord, roles, [], mode, companyUrl, rolesSummary);
     return await this._callClaude([{ role: 'user', content: prompt }]);
   }
 
@@ -1642,6 +1652,13 @@ class InsightsAgent {
     if (s === 'posted' || s.startsWith('posted')) return 'public';
     // Whispered Role™, Unposted-Rumor, Unposted-Recruiter, Unposted-Company, Unposted-Future
     return 'members-only';
+  }
+
+  /** Returns true if the role is active (not closed, not confidential). */
+  _roleIsActive(role) {
+    if (this._roleStatus(role) === 'confidential') return false;
+    const raw = this._field((role.fields || {}), 'Status', '');
+    return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() !== 'closed';
   }
 
   /** Returns true if a role should be surfaced to a user at the given tier. */
