@@ -103,7 +103,10 @@ Investors: ${investors || 'Unknown'}`.trim();
     modeInstruction = (
       'IMPORTANT: This is a Free-tier response. Share only public information ' +
       '(description, headcount, investors, open role titles). Do NOT mention ' +
-      'confidential notes or community insights.'
+      'confidential notes or community insights. ' +
+      'If unposted roles appear in OPEN ROLES, acknowledge them but explain why they are members-only: ' +
+      'executives and recruiters share these sensitive, unannounced roles with us because they trust our ' +
+      "community's talent bar and that the roles won't leak — so we only share them with paid members."
     );
   } else if (mode === 'pro') {
     modeInstruction = (

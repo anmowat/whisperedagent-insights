@@ -484,9 +484,9 @@ class InsightsAgent {
         const coRef = this._companyRef(state);
         if (count) {
           return (
-            `We do have ${count} ${noun} tracked for ${coRef}, ` +
-            'but the details are only available on Pro and above. ' +
-            '**Upgrade to Pro to see the role titles and hiring details.**'
+            `We do have ${count} ${noun} tracked for ${coRef}. ` +
+            'These are roles shared with us in confidence — executives and recruiters trust our community\'s talent bar and discretion with sensitive, unannounced openings, so we only share them with paid members. ' +
+            '**Become a paid member to see the role titles and hiring details.**'
           );
         }
         return `I don't have any roles tracked for ${coRef} at the moment.`;
