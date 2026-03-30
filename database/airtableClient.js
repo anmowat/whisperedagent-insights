@@ -82,6 +82,7 @@ class AirtableClient {
     this.companies = null; // set after async init
     this._locationOptionsCache = null;
     this._tablesMetaCache = null; // cache for metadata API response
+    this._statusNameCache = null; // Map<recordId, statusName> for linked Status field
   }
 
   /**
@@ -112,6 +113,43 @@ class AirtableClient {
     const data = await resp.json();
     this._tablesMetaCache = data.tables || [];
     return this._tablesMetaCache;
+  }
+
+  /**
+   * Build a cache of Status linked-record IDs → status name strings.
+   * The Roles table's "Status" field is a linked record field; this resolves
+   * those IDs to display values (e.g. "Posted", "Closed", "Unposted - Company").
+   */
+  async _ensureStatusNameCache() {
+    if (this._statusNameCache) return;
+    this._statusNameCache = new Map();
+    try {
+      const tables = await this._getTablesMeta();
+      const rolesTable = tables.find(t => t.name === this._rolesTableName);
+      if (!rolesTable) return;
+      const statusField = rolesTable.fields.find(
+        f => f.name === 'Status' && f.type === 'multipleRecordLinks'
+      );
+      if (!statusField || !statusField.options || !statusField.options.linkedTableId) return;
+      const linkedTable = tables.find(t => t.id === statusField.options.linkedTableId);
+      if (!linkedTable) return;
+      const statusRecords = await this._base(linkedTable.name).select().all();
+      for (const r of statusRecords) {
+        const name = Object.values(r.fields || {})[0];
+        if (name != null) this._statusNameCache.set(r.id, String(name));
+      }
+      console.info(`[statusCache] loaded ${this._statusNameCache.size} status options from "${linkedTable.name}"`);
+    } catch (e) {
+      console.warn(`[statusCache] failed to build: ${e.message}`);
+    }
+  }
+
+  /** Resolve linked Status record IDs to a plain status string in-place. */
+  _resolveStatus(roleDict) {
+    const raw = (roleDict.fields || {}).Status;
+    if (!Array.isArray(raw) || raw.length === 0) return;
+    const name = this._statusNameCache && this._statusNameCache.get(raw[0]);
+    if (name) roleDict.fields.Status = name;
   }
 
   async _discoverCompaniesTable() {
@@ -219,6 +257,9 @@ class AirtableClient {
       const companyName = ((co || {}).fields || {})['Company Name'] || '';
       console.info(`[getCompanyRoles] companyName='${companyName}'`);
 
+      // Ensure Status linked-record IDs are resolved to name strings before any filtering
+      await this._ensureStatusNameCache();
+
       if (companyName) {
         const nameEscaped = companyName.replace(/'/g, "\\'");
         const formula = `{Company} = '${nameEscaped}'`;
@@ -227,9 +268,10 @@ class AirtableClient {
           const records = await this.roles.select({ filterByFormula: formula }).all();
           console.info(`[getCompanyRoles] formula returned ${records.length} record(s)`);
           if (records.length > 0) {
-            // Log first record's Company field to confirm its shape
             console.info(`[getCompanyRoles] first record Company=${JSON.stringify(records[0].fields.Company)}`);
-            return records.map(toDict).filter(_notConfidential);
+            const dicts = records.map(toDict);
+            dicts.forEach(d => this._resolveStatus(d));
+            return dicts.filter(_notConfidential);
           }
         } catch (e) {
           console.warn(`[getCompanyRoles] formula error: ${e.message}`);
@@ -240,12 +282,9 @@ class AirtableClient {
       console.info(`[getCompanyRoles] falling back to full table scan`);
       const allRecords = await this.roles.select().all();
       console.info(`[getCompanyRoles] full table has ${allRecords.length} record(s)`);
-      // Log the Company field shape of the first record so we can see the actual type
-      if (allRecords.length > 0) {
-        const sample = allRecords[0];
-        console.info(`[getCompanyRoles] sample record "${sample.fields.Title}" Company=${JSON.stringify(sample.fields.Company)} (type=${typeof sample.fields.Company}, isArray=${Array.isArray(sample.fields.Company)})`);
-      }
-      const result = allRecords.map(toDict).filter(_notConfidential).filter(r => {
+      const dicts = allRecords.map(toDict);
+      dicts.forEach(d => this._resolveStatus(d));
+      const result = dicts.filter(_notConfidential).filter(r => {
         const linked = (r.fields || {}).Company;
         return Array.isArray(linked) && linked.includes(companyId);
       });
