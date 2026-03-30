@@ -698,6 +698,26 @@ class InsightsAgent {
     // Role listing intent must be checked first — it takes priority over continuation detection.
     // "are there any other roles at maintainx" is still a continuation but needs a listing response.
     if (state.companyRecordId && this._isRolesListIntent(userText)) {
+      // If the message mentions a different company (e.g. "what roles do we have at Gong"
+      // while currently on Cursor), switch context first so we look up the right company.
+      const parsedForSwitch = await this._parseCompanyAndRole(userText);
+      const mentionedCo = (parsedForSwitch && parsedForSwitch.company || '').toLowerCase().trim();
+      const currentCo = (state.companyName || '').toLowerCase().trim();
+      const isDifferentCompany = mentionedCo &&
+        mentionedCo !== currentCo &&
+        !currentCo.includes(mentionedCo) &&
+        !mentionedCo.includes(currentCo);
+      if (isDifferentCompany) {
+        // Reset and re-dispatch — _handleIdentify → _dispatchAfterMatch will
+        // look up the new company and re-evaluate rolesListIntent there.
+        state.companyRecordId = null;
+        state.companyName = null;
+        state.roleRecordId = null;
+        state.roleTitle = null;
+        state.phase = Phase.IDENTIFY;
+        return await this._handleIdentify(state, userText);
+      }
+
       if (state.mode === 'premium') {
         return await this._listCompanyRoles(state);
       }
