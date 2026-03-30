@@ -436,7 +436,10 @@ class AirtableClient {
   async findRoleById(recordId) {
     try {
       const record = await this.roles.find(recordId);
-      return toDict(record);
+      await this._ensureStatusNameCache();
+      const d = toDict(record);
+      this._resolveStatus(d);
+      return d;
     } catch (err) {
       console.warn(`findRoleById failed for '${recordId}': ${err.message}`);
       return null;

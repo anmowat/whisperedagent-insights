@@ -1032,10 +1032,9 @@ class InsightsAgent {
     const unpostedActiveCount = allRoles.filter(r =>
       this._roleStatus(r) === 'members-only' && this._roleIsActive(r)
     ).length;
-    const closedRoles = allRoles.filter(r => {
-      const raw = this._field((r.fields || {}), 'Status', '');
-      return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() === 'closed';
-    });
+    const closedRoles = allRoles.filter(r =>
+      /\bclosed\b/.test(this._normalizeStatus(this._field((r.fields || {}), 'Status', '')))
+    );
     const coRef = this._companyRef(state);
 
     if (publicOpenRoles.length > 0) {
@@ -1106,10 +1105,10 @@ class InsightsAgent {
     }
 
     const openRoles = roles.filter(
-      r => this._field(r.fields, 'Status', 'open').toLowerCase() !== 'closed'
+      r => !/\bclosed\b/.test(this._normalizeStatus(this._field(r.fields, 'Status')))
     );
     const closedRoles = roles.filter(
-      r => this._field(r.fields, 'Status').toLowerCase() === 'closed'
+      r => /\bclosed\b/.test(this._normalizeStatus(this._field(r.fields, 'Status')))
     );
     const companyUrl = state.companyDomain || '';
     const prompt = buildRolesListingPrompt(coRec || {}, openRoles, closedRoles, companyUrl);
@@ -1133,10 +1132,9 @@ class InsightsAgent {
     // without revealing titles or proactively explaining unposted roles.
     const rolesSummary = mode === 'free' ? {
       activeCount: allRoles.filter(r => this._roleIsActive(r)).length,
-      closedCount: allRoles.filter(r => {
-        const raw = this._field((r.fields || {}), 'Status', '');
-        return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() === 'closed';
-      }).length,
+      closedCount: allRoles.filter(r =>
+        /\bclosed\b/.test(this._normalizeStatus(this._field((r.fields || {}), 'Status', '')))
+      ).length,
     } : null;
     console.info(`[synopsis debug] mode=${mode} activeCount=${rolesSummary?.activeCount} closedCount=${rolesSummary?.closedCount}`);
     const prompt = buildCompanySynopsisPrompt(companyRecord, roles, [], mode, companyUrl, rolesSummary);
@@ -1290,7 +1288,7 @@ class InsightsAgent {
     // Focus the summary on open roles only — closed roles accumulate over time and
     // would overwhelm the message. We still surface them if explicitly asked.
     const openRoles = existingRoles.filter(
-      r => this._field(r.fields, 'Status').toLowerCase() !== 'closed'
+      r => !/\bclosed\b/.test(this._normalizeStatus(this._field(r.fields, 'Status')))
     );
     const openCount = openRoles.length;
 
@@ -1687,12 +1685,20 @@ class InsightsAgent {
    *   'members-only' — Whispered Role™, Unposted-Rumor/Recruiter/Company/Future: Pro/Premium only
    *   'confidential' — Unposted-Confidential: never share with anyone
    */
+  /** Strip emoji/non-ASCII so status values like "🟥 Posted" compare as "posted". */
+  _normalizeStatus(raw) {
+    const s = (Array.isArray(raw) ? raw.join(',') : String(raw));
+    // Remove non-ASCII characters (emoji, special symbols) then normalise whitespace
+    return s.replace(/[^\x00-\x7F]+/g, '').trim().toLowerCase();
+  }
+
   _roleStatus(role) {
     const raw = this._field((role || {}).fields, 'Status', '');
-    const s = (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim();
+    const s = this._normalizeStatus(raw);
     if (s.includes('confidential')) return 'confidential';
-    if (s === 'closed') return 'public';
-    if (s === 'posted' || s.startsWith('posted')) return 'public';
+    // \bposted\b matches "Posted" but NOT "Unposted"
+    if (/\bclosed\b/.test(s)) return 'public';
+    if (/\bposted\b/.test(s)) return 'public';
     // Whispered Role™, Unposted-Rumor, Unposted-Recruiter, Unposted-Company, Unposted-Future
     return 'members-only';
   }
@@ -1701,7 +1707,7 @@ class InsightsAgent {
   _roleIsActive(role) {
     if (this._roleStatus(role) === 'confidential') return false;
     const raw = this._field((role.fields || {}), 'Status', '');
-    return (Array.isArray(raw) ? raw.join(',') : String(raw)).toLowerCase().trim() !== 'closed';
+    return !/\bclosed\b/.test(this._normalizeStatus(raw));
   }
 
   /** Returns true if a role should be surfaced to a user at the given tier. */
