@@ -78,9 +78,8 @@ class InsightsAgent {
 
     if (mode === 'free') {
       greeting = (
-        "Ask me about any company or role—I'll share available public info " +
-        "(upgrade for access to unposted roles + company insights).\n\n" +
-        "You can also contribute unposted roles or confidential insights to help the community."
+        "Ask about any company or role—I'll share public info (upgrade for unposted roles).\n\n" +
+        "Contribute roles or insights to help fellow execs and unlock deeper insights"
       );
     } else if (mode === 'pro') {
       greeting = (
@@ -90,9 +89,8 @@ class InsightsAgent {
       );
     } else { // premium
       greeting = (
-        "Which company/role are you interested in? " +
-        "I can share what we have and we can compare notes.\n\n" +
-        "And, if you have a role to share I can add it to the database for you."
+        "Which company/role are you interested in? I can share what we have and we can compare notes.\n\n" +
+        "And, I can capture new insights/roles to help other members."
       );
     }
 
