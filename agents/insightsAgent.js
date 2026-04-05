@@ -104,6 +104,20 @@ class InsightsAgent {
 
     state.addUserMessage(userText);
 
+    // Free tier: gate any request to see unposted/confidential roles upfront,
+    // regardless of conversation phase, with the full confidentiality explanation.
+    if (mode === 'free' && this._isUnpostedRolesRequest(userText)) {
+      const coRef = state.companyName ? ` at ${this._companyRef(state)}` : '';
+      const reply = (
+        `Unposted roles are shared with us in confidence by recruiters, companies and Whispered paid members. ` +
+        `We get these roles because all parties trust that roles shared with Whispered remain confidential and don't spread publicly — so we can only share them with paying members who've agreed to our community standards.\n\n` +
+        `If you fit the criteria, apply for Pro/Premium and chat with our team about unlocking all roles and confidential company insights.\n\n` +
+        `[Apply for our paid plans](https://www.whispered.com/join)`
+      );
+      state.addAssistantMessage(reply);
+      return reply;
+    }
+
     let reply;
     if (state.phase === Phase.IDENTIFY) {
       reply = await this._handleIdentify(state, userText);
@@ -693,16 +707,6 @@ class InsightsAgent {
       }
     }
 
-    // Free tier: intercept requests to see unposted/confidential roles and explain why we can't share
-    if (state.mode === 'free' && this._isUnpostedRolesRequest(userText)) {
-      const coRef = this._companyRef(state);
-      return (
-        `Those roles were shared with us in confidence by recruiters and hiring teams. ` +
-        `We've built our model in partnership with top recruiters specifically to ensure that roles shared with Whispered remain confidential and don't spread publicly — so we can only share them with paying members who've agreed to our community standards.\n\n` +
-        `**Upgrade to a paid plan to access unposted roles at ${coRef} and across our entire database.**`
-      );
-    }
-
     // Role listing intent must be checked first — it takes priority over continuation detection.
     // "are there any other roles at maintainx" is still a continuation but needs a listing response.
     if (state.companyRecordId && this._isRolesListIntent(userText)) {
@@ -1124,10 +1128,18 @@ class InsightsAgent {
   _isUnpostedRolesRequest(text) {
     const low = text.toLowerCase();
     return (
-      /\b(unposted|whispered|confidential|hidden|private|members.only|gated)\b.{0,30}\broles?\b/.test(low) ||
+      // Explicit unposted/confidential role keywords
+      /\b(unposted|whispered|confidential|hidden|private|members.only|gated|restricted|exclusive)\b.{0,30}\broles?\b/.test(low) ||
       /\broles?\b.{0,30}\b(unposted|whispered|confidential|hidden|private|members.only|gated)\b/.test(low) ||
-      /\b(show|see|access|view|share|tell me).{0,20}\b(those|the other|other|all).{0,20}\broles?\b/.test(low) ||
-      /\bwhat are (the other|those other|those) roles?\b/.test(low)
+      // "show/see/access/share the other roles / those roles / all roles"
+      /\b(show|see|access|view|get|share|reveal|unlock|tell me about).{0,25}\b(those|the other|other|all|remaining|rest of the|the rest).{0,20}\broles?\b/.test(low) ||
+      // "what are the other/those roles"
+      /\bwhat (are|about) (the other|those other|those|all the|the remaining|the rest of the) roles?\b/.test(low) ||
+      // "can I see the X unposted / other roles"
+      /\b(can i|could i|how do i|how can i).{0,30}\b(see|access|view|get|unlock).{0,30}\broles?\b/.test(low) ||
+      // "upgrade" / "paid" / "pro" mentioned together with roles
+      /\b(upgrade|paid|pro|premium).{0,30}\broles?\b/.test(low) ||
+      /\broles?.{0,30}\b(upgrade|paid plan|pro plan|premium plan)\b/.test(low)
     );
   }
 
