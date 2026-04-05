@@ -867,7 +867,7 @@ class InsightsAgent {
         return this._buildInsightWrapUp(state);
       }
       state.insightFollowupsAsked++;
-      return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
+      return this._firstFollowupQuestion(state);
     }
 
     const parsed = await this._parseCompanyAndRole(userText);
@@ -939,7 +939,7 @@ class InsightsAgent {
       return this._buildInsightWrapUp(state);
     }
     state.insightFollowupsAsked++;
-    return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
+    return this._firstFollowupQuestion(state);
   }
 
   /**
@@ -1065,6 +1065,16 @@ class InsightsAgent {
   _ensureHttps(url) {
     if (!url) return url;
     return (url.startsWith('http://') || url.startsWith('https://')) ? url : 'https://' + url;
+  }
+
+  /**
+   * First gentle follow-up question — always asks how they found/heard about the role.
+   * Hardcoded so Claude can't drift into deep company/strategy questions too early.
+   */
+  _firstFollowupQuestion(state) {
+    const roleRef = state.roleTitle ? `the **${state.roleTitle}** role` : 'this role';
+    const coRef = state.companyName ? ` at **${state.companyName}**` : '';
+    return `Good to know! **How did you come across ${roleRef}${coRef} — through your network, a recruiter, or somewhere else?**`;
   }
 
   /**
