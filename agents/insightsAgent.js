@@ -144,7 +144,12 @@ class InsightsAgent {
 
   async _handleIdentify(state, userText) {
     const parsed = await this._parseCompanyAndRole(userText);
-    const companyName = parsed.company;
+
+    let companyRecord = null;
+    let roleRecord = null;
+    let matchType = 'none';
+
+    let companyName = parsed.company;
     const roleTitle = parsed.role;
 
     if (!companyName && !roleTitle) {
@@ -156,15 +161,23 @@ class InsightsAgent {
           '"VP of Sales at Acme Corp".'
         );
       }
-      return (
-        "I didn't catch a company or role name there. " +
-        '**Could you try again? For example: "Acme Corp" or "Product Manager at Acme Corp".**'
-      );
+      // Claude didn't recognise a company name (e.g. "runbook", "notion", "linear"
+      // look like common words). Try a direct DB search before giving up.
+      const rawQuery = userText.trim()
+        .replace(/^(show me|tell me about|what about|how about|look up)\s+/i, '').trim();
+      if (rawQuery.length >= 2 && rawQuery.length <= 60) {
+        const directHits = await this.db.findCompany(rawQuery);
+        if (directHits && directHits.length > 0) {
+          companyName = rawQuery; // treat raw text as company name and fall through
+        }
+      }
+      if (!companyName) {
+        return (
+          "I didn't catch a company or role name there. " +
+          '**Could you try again? For example: "Acme Corp" or "Product Manager at Acme Corp".**'
+        );
+      }
     }
-
-    let companyRecord = null;
-    let roleRecord = null;
-    let matchType = 'none';
 
     // Fall back to the company already in state if the message didn't name one
     const effectiveCompany = companyName || state.companyName;
