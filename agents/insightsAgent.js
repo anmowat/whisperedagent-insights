@@ -693,6 +693,16 @@ class InsightsAgent {
       }
     }
 
+    // Free tier: intercept requests to see unposted/confidential roles and explain why we can't share
+    if (state.mode === 'free' && this._isUnpostedRolesRequest(userText)) {
+      const coRef = this._companyRef(state);
+      return (
+        `Those roles were shared with us in confidence by recruiters and hiring teams. ` +
+        `We've built our model in partnership with top recruiters specifically to ensure that roles shared with Whispered remain confidential and don't spread publicly — so we can only share them with paying members who've agreed to our community standards.\n\n` +
+        `**Upgrade to a paid plan to access unposted roles at ${coRef} and across our entire database.**`
+      );
+    }
+
     // Role listing intent must be checked first — it takes priority over continuation detection.
     // "are there any other roles at maintainx" is still a continuation but needs a listing response.
     if (state.companyRecordId && this._isRolesListIntent(userText)) {
@@ -1063,7 +1073,7 @@ class InsightsAgent {
       const companyUrl = state.companyDomain || '';
       const companyRef = companyUrl ? `[${companyName}](${companyUrl})` : companyName;
 
-      // Build count line: "We have X posted role(s) at Company and Y unposted roles"
+      // Build count line: "We have X posted role(s) at Company [and Y unposted roles]"
       const postedNoun = publicOpenRoles.length === 1 ? 'posted role' : 'posted roles';
       let countLine = `We have ${publicOpenRoles.length} ${postedNoun} at ${companyRef}`;
       if (unpostedActiveCount > 0) {
@@ -1108,6 +1118,17 @@ class InsightsAgent {
       return `We have ${closedRoles.length} previously tracked ${noun} for ${coRef}, but they're all closed at the moment. **Become a paid member to get notified when new roles open up.**`;
     }
     return `I don't have any roles tracked for ${coRef} at the moment.`;
+  }
+
+  /** Returns true when a free user is asking to see unposted/confidential/gated roles. */
+  _isUnpostedRolesRequest(text) {
+    const low = text.toLowerCase();
+    return (
+      /\b(unposted|whispered|confidential|hidden|private|members.only|gated)\b.{0,30}\broles?\b/.test(low) ||
+      /\broles?\b.{0,30}\b(unposted|whispered|confidential|hidden|private|members.only|gated)\b/.test(low) ||
+      /\b(show|see|access|view|share|tell me).{0,20}\b(those|the other|other|all).{0,20}\broles?\b/.test(low) ||
+      /\bwhat are (the other|those other|those) roles?\b/.test(low)
+    );
   }
 
   /** Returns true when the user is asking about general comp benchmarks (not specific role data). */

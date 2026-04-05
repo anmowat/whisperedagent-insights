@@ -51,7 +51,7 @@ Investors: ${investors || 'Unknown'}`.trim();
     const { postedActive = [], unpostedActiveCount = 0, closedCount = 0 } = rolesSummary;
     const postedCount = postedActive.length;
     if (postedCount > 0 || unpostedActiveCount > 0) {
-      // Build the "We have X posted role(s)... at Company" line
+      // Build the "We have X posted role(s) (Title) and Y unposted roles at Company" line
       const parts = [];
       if (postedCount === 1) {
         const title = (postedActive[0].fields || {}).Title || 'Untitled';
@@ -64,7 +64,6 @@ Investors: ${investors || 'Unknown'}`.trim();
         parts.push(`${unpostedActiveCount} ${noun}`);
       }
       freeRolesLine = `We have ${parts.join(' and ')} at ${companyName}.`;
-      // If multiple posted roles, append numbered list
       if (postedCount > 1) {
         const numbered = postedActive.map((r, i) => `${i + 1}. ${(r.fields || {}).Title || 'Untitled'}`).join('\n');
         freeRolesLine += '\n' + numbered;
@@ -142,8 +141,6 @@ Investors: ${investors || 'Unknown'}`.trim();
 
   const sections = [companySection, rolesSection];
   if (insightsSection) sections.push(insightsSection);
-  // For free tier, append the pre-built roles line to the data so it's clearly separated from instructions
-  if (freeRolesLine) sections.push(`ROLES LINE (copy this verbatim into your response):\n${freeRolesLine}`);
   const body = sections.join('\n\n');
 
   const linkInstruction = companyUrl
