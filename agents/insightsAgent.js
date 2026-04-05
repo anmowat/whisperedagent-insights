@@ -1802,8 +1802,9 @@ class InsightsAgent {
         [{ role: 'user', content: prompt }],
         { maxTokens: 32, system: 'You are a factual assistant. Return only what is asked, nothing else.' }
       );
-      const domain = raw.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0].trim();
-      if (domain && domain !== 'null' && domain.includes('.')) return domain;
+      const domain = raw.trim().toLowerCase().replace(/^https?:\/\//, '').split('/')[0].split('\n')[0].trim();
+      // Must look like a real domain: has a dot, no spaces, reasonably short
+      if (domain && domain !== 'null' && /^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return domain;
     } catch (e) {
       console.debug(`_lookupDomain failed for '${companyName}'`);
     }
