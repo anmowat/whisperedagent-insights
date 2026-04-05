@@ -1074,7 +1074,7 @@ class InsightsAgent {
   _firstFollowupQuestion(state) {
     const roleRef = state.roleTitle ? `the **${state.roleTitle}** role` : 'this role';
     const coRef = state.companyName ? ` at **${state.companyName}**` : '';
-    return `Good to know! **How did you come across ${roleRef}${coRef} — through your network, a recruiter, or somewhere else?**`;
+    return `Thanks for sharing. **How did you come across ${roleRef}${coRef} — through your network, a recruiter, or somewhere else?**`;
   }
 
   /**
