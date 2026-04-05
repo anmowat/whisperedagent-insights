@@ -831,11 +831,17 @@ class InsightsAgent {
 
     // When in company-found mode with no active role, a role name always takes priority
     // so that "SDR leader" (answering "What's the role?") routes to collection rather than gap-fill.
-    if (state.companyRecordId && !state.roleRecordId && !this._isRolesListIntent(userText)) {
+    if (!state.roleRecordId && !this._isRolesListIntent(userText)) {
       const parsed = await this._parseCompanyAndRole(userText);
       if (parsed.role && parsed.role.length >= 3) {
-        state.phase = Phase.IDENTIFY;
-        return this._handleIdentify(state, userText);
+        if (state.companyRecordId) {
+          // Existing DB company — re-identify to find or collect the role
+          state.phase = Phase.IDENTIFY;
+          return this._handleIdentify(state, userText);
+        } else if (state.companyName) {
+          // Newly queued company (no DB record yet) — start collection directly
+          return this._startNewEntityCollection(state, state.companyName, parsed.role, false);
+        }
       }
     }
 
