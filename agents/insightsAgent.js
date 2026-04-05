@@ -464,9 +464,10 @@ class InsightsAgent {
           .replace(/it'?s?\s+(a\s+)?new\s+(company\s*)?[-–]?\s*/i, '')
           .replace(/\b(new|add|different)\s+company\s*[-–]?\s*/i, '')
           .replace(/\bto add\s*[-–]?\s*/i, '')
-          .replace(/^[-–\s]+/, '')   // strip any leading dashes/spaces left over
-          .trim()
-          .replace(/^(none|no|nope|not|nothing|nah)$/i, '') || null;
+          .replace(/\badd\b\s*/i, '')               // bare "add" left over (e.g. "none - add astro")
+          .replace(/^[-–\s]+/, '')                  // strip leading dashes/spaces
+          .replace(/^(none|no|nope|not|nothing|nah)\s*[-–,]?\s*/i, '')  // strip leading none/no at start
+          .trim() || null;
         state.phase = Phase.IDENTIFY;
         return this._startNewEntityCollection(state, companyName, null, false);
       }
