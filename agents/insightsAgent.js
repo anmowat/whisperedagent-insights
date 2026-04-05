@@ -1876,8 +1876,9 @@ class InsightsAgent {
 
     if (pe.roleTitle) {
       return (
-        `Captured — **${pe.roleTitle}** at **${pe.companyName}** has been queued for our database. ` +
-        'Thanks for the contribution!'
+        `Thanks for sharing. I have hundreds of playbooks on how to find and win **${pe.roleTitle}** roles like this one. ` +
+        `Click on our **Strategies** agent or chat with me below for advice.\n\n` +
+        `Where are you at in the process for this role, or would you like to discuss another role/company?`
       );
     }
 
