@@ -131,14 +131,14 @@ ${modeInstruction ? modeInstruction + '\n\n' : ''}${linkInstruction}DATA ON FILE
 ${body}
 ---
 
-Write a SHORT response (3-4 sentences max) that:
-1. Gives the most useful snapshot of the company — what makes it interesting right now.
-2. Notes any open roles briefly (just titles, no details dump).
-3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they're in, or their leadership. Do NOT ask whether the user knows anyone there or has a personal connection to the company.
+Write a SHORT response that:
+1. Gives the most useful snapshot of the company — what makes it interesting right now (1-2 sentences).
+2. If there are open roles, list each one on its own numbered line (e.g. "1. Enterprise Sales Leader\n2. VP of Demand Gen"). If there is only one role, mention it inline. Do not dump details — just the title.
+3. Ends with ONE short, generic question: "**Are you interested in one of these roles, or do you have insights on the company?**" (adapt wording naturally if there's only one role or no roles — e.g. "Are you exploring this role, or do you have insights on the company?"). Do NOT ask a specific industry or market question at this stage.
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 
-Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything — leave room for dialogue.`;
+Bold only the closing question using **double asterisks**. Do not use any other markdown outside the numbered role list. Do NOT try to share everything — leave room for dialogue.`;
 }
 
 
