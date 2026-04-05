@@ -453,7 +453,9 @@ class InsightsAgent {
       const isNewCompanySignal = (
         /\b(new|add|different|not (one of|any of|in the)|none of (these|those|them)|i have a new)\b/.test(low) &&
         /\b(company|one|it)\b/.test(low)
-      ) || /\bnone\b/.test(low);
+      ) || /\bnone\b/.test(low)
+        || /\badd\s+\w/.test(low)   // "add astro", "no - add astro", etc.
+        || /^no\b/.test(low);       // bare "no" or "no - ..." at start
 
       if (isNewCompanySignal) {
         // Strip noise phrases to extract just the company name
