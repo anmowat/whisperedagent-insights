@@ -1722,12 +1722,12 @@ class InsightsAgent {
 
     if (pe.roleTitle) {
       state.suggestedUpdates.new_role = {
-        Title: pe.roleTitle,
+        Title:   pe.roleTitle,
         Company: pe.companyName,
-        ...(pe.find         ? { 'Role - Find':         pe.find         } : {}),
-        ...(pe.notes        ? { 'Role - Notes':        pe.notes        } : {}),
-        ...(pe.location     ? { 'Role - Location':     pe.location     } : {}),
-        ...(pe.compensation != null ? { 'Role - Compensation': pe.compensation } : {}),
+        ...(pe.find         ? { Find:     pe.find         } : {}),
+        ...(pe.notes        ? { Notes:    pe.notes        } : {}),
+        ...(pe.location     ? { Location: pe.location     } : {}),
+        ...(pe.compensation != null ? { Compensation: pe.compensation } : {}),
       };
     }
 
