@@ -166,7 +166,7 @@ class InsightsAgent {
       const rawQuery = userText.trim()
         .replace(/^(show me|tell me about|what about|how about|look up)\s+/i, '').trim();
       if (rawQuery.length >= 2 && rawQuery.length <= 60) {
-        const directHits = await this.db.findCompany(rawQuery);
+        const directHits = await this.db.findCompanies(rawQuery);
         if (directHits && directHits.length > 0) {
           companyName = rawQuery; // treat raw text as company name and fall through
         }
