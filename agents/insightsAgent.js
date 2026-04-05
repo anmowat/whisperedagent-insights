@@ -1077,7 +1077,7 @@ class InsightsAgent {
       const roleRef = state.roleTitle ? ` **${state.roleTitle}**` : '';
       return `Check out our **Strategies** agent — I have hundreds of playbooks on how to find and win${roleRef} roles like this one.`;
     } else {
-      const coRef = state.companyName ? ` **${state.companyName}**` : ' a company you're targeting';
+      const coRef = state.companyName ? ` **${state.companyName}**` : ' a company you are targeting';
       return `Looking for an intro path into${coRef}? Our **Connections** agent can help you map your way in.`;
     }
   }
