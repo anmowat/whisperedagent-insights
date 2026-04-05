@@ -1058,10 +1058,17 @@ class InsightsAgent {
   /** Thank the user and invite them to bring up another company or role. */
   _buildInsightWrapUp(state) {
     const entity = (state.roleTitle ? `${state.roleTitle} at ` : '') + (state.companyName || 'that');
-    return (
-      `Thanks so much for sharing — this is really helpful for ${entity}! ` +
-      `**Are there other companies or roles I can help you with?**`
-    );
+    const base = `Thanks so much for sharing — this is really helpful for ${entity}!`;
+
+    if (state.roleTitle && Math.random() < 0.25) {
+      return (
+        `${base} I have hundreds of playbooks on how to find and win **${state.roleTitle}** roles — ` +
+        `check out the **Strategies** agent for advice.\n\n` +
+        `**Are there other companies or roles I can help you with?**`
+      );
+    }
+
+    return `${base} **Are there other companies or roles I can help you with?**`;
   }
 
   /** Look up companyName in the DB and update state; falls back to name-only if not found. */
