@@ -804,6 +804,21 @@ class InsightsAgent {
       );
     }
 
+    // Free tier: if the user expresses interest in "the role" but only unposted
+    // roles exist, show the upgrade message instead of gathering intel.
+    if (state.mode === 'free' && state.companyRecordId && !state.roleRecordId &&
+        this._isRoleInterestSignal(userText)) {
+      const allRoles = await this.db.getCompanyRoles(state.companyRecordId);
+      const hasPublicOpen = allRoles.some(r => this._roleStatus(r) === 'public' && this._roleIsActive(r));
+      if (!hasPublicOpen) {
+        return (
+          `Unposted roles are shared with us in confidence by recruiters, companies and Whispered paid members. ` +
+          `We get these roles because all parties trust that roles shared with Whispered remain confidential and don't spread publicly — so we can only share them with paying members who've agreed to our community standards.\n\n` +
+          `[If you fit the criteria, apply for Pro/Premium](https://www.whispered.com/join) and chat with our team about unlocking all roles and confidential company insights.`
+        );
+      }
+    }
+
     if (await this._isContinuationReply(state, userText)) {
       const clarification = await this._attributionClarification(state, userText);
       if (clarification) return clarification;
@@ -1041,6 +1056,17 @@ class InsightsAgent {
   // ------------------------------------------------------------------
   // Roles listing (premium only)
   // ------------------------------------------------------------------
+
+  /** Returns true when the user is expressing interest in a specific role (not contributing one). */
+  _isRoleInterestSignal(text) {
+    const low = text.toLowerCase();
+    return (
+      /\b(interested in|curious about|want to (know|learn|hear) (more )?about|tell me (more )?about|exploring|considering|applying( for)?)\b.{0,25}\b(that|this|the|it|one)\b.{0,15}\broles?\b/.test(low) ||
+      /\b(interested in|curious about|exploring|considering)\b.{0,15}\b(that|this|the|it)\b/.test(low) ||
+      /\byes.{0,20}\b(interested|want|curious|love to know|tell me)\b/.test(low) ||
+      /\b(that|this) (role|one|position|opportunity) (sounds?|looks?|seems?)\b/.test(low)
+    );
+  }
 
   /** Returns true when the user signals they know about a new/unlisted role. */
   _isNewRoleSignal(text) {
