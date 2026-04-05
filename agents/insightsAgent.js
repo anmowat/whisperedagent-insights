@@ -1087,18 +1087,12 @@ class InsightsAgent {
         return `${i + 1}. ${titleRef}${details ? ' — ' + details : ''}`;
       }).join('\n');
 
-      // Unposted upsell line (after list)
-      let upsellLine = '';
-      if (unpostedActiveCount > 0) {
-        upsellLine = '\n\nThe unposted roles are shared confidentially with paid members. **Become a paid member to see those details.**';
-      }
-
       // Closing question — non-presumptuous
       const closingQ = publicOpenRoles.length === 1
         ? '\n\n**Are you interested in this role, or do you have insights on the company?**'
         : '\n\n**Are you interested in one of these roles, or do you have insights on the company?**';
 
-      return `${countLine}\n\n${roleLines}${upsellLine}${closingQ}`;
+      return `${countLine}\n\n${roleLines}${closingQ}`;
     }
 
     if (unpostedActiveCount > 0) {
