@@ -275,7 +275,8 @@ Headcount Growth % (last 6 months) — negative means headcount shrank, positive
     ? `Formatting: whenever you mention ${linkParts.join(' and ')} in your response, use those exact markdown hyperlinks — do not write the plain names.\n\n`
     : '';
 
-  const stepNum = canAskMore ? '4' : '3';
+  const strategiesStep = canAskMore ? '4' : '3';
+  const endingStep = canAskMore ? '5' : '4';
   return `You are the Insights agent for a professional community. A member just asked about this role.
 
 ${modeInstruction ? modeInstruction + '\n\n' : ''}${linkInstruction}DATA ON FILE:
@@ -286,7 +287,8 @@ ${body}
 Write a SHORT response (3-4 sentences max) that:
 1. Summarises what we know about the role — the 1-2 most useful things.
 2. Mentions anything notable about the hiring process if we have it.
-${canAskMore ? `3. ${canAskMore}\n` : ''}${stepNum}. ${endingInstruction}
+${canAskMore ? `3. ${canAskMore}\n` : ''}${strategiesStep}. Mention that we have hundreds of playbooks on how to find and win ${roleTitle} roles and that they can click on the **Strategies** agent for advice — keep this to one sentence.
+${endingStep}. ${endingInstruction}
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 
