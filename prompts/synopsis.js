@@ -45,18 +45,42 @@ Investors: ${investors || 'Unknown'}`.trim();
   }
 
   let rolesSection;
+  let freeRolesLine = '';   // pre-built line for free tier (used verbatim in prompt)
+  let freeClosingQ = '';    // pre-built closing question for free tier
   if (mode === 'free' && rolesSummary) {
-    // Free tier: show counts only — don't reveal titles, don't explain unposted roles
-    const { activeCount = 0, closedCount = 0 } = rolesSummary;
-    if (activeCount > 0) {
-      const noun = activeCount === 1 ? 'open role' : 'open roles';
-      rolesSection = `OPEN ROLES: ${activeCount} ${noun} on Whispered.`;
+    const { postedActive = [], unpostedActiveCount = 0, closedCount = 0 } = rolesSummary;
+    const postedCount = postedActive.length;
+    if (postedCount > 0 || unpostedActiveCount > 0) {
+      // Build the "We have X posted role(s)... at Company" line
+      const parts = [];
+      if (postedCount === 1) {
+        const title = (postedActive[0].fields || {}).Title || 'Untitled';
+        parts.push(`1 posted role (${title})`);
+      } else if (postedCount > 1) {
+        parts.push(`${postedCount} posted roles`);
+      }
+      if (unpostedActiveCount > 0) {
+        const noun = unpostedActiveCount === 1 ? 'unposted role' : 'unposted roles';
+        parts.push(`${unpostedActiveCount} ${noun}`);
+      }
+      freeRolesLine = `We have ${parts.join(' and ')} at ${companyName}.`;
+      // If multiple posted roles, append numbered list
+      if (postedCount > 1) {
+        const numbered = postedActive.map((r, i) => `${i + 1}. ${(r.fields || {}).Title || 'Untitled'}`).join('\n');
+        freeRolesLine += '\n' + numbered;
+        freeClosingQ = '**Are you interested in one of these roles, or do you have insights on the company?**';
+      } else {
+        freeClosingQ = '**Are you interested in this role, or do you have insights on the company?**';
+      }
     } else if (closedCount > 0) {
       const noun = closedCount === 1 ? 'role' : 'roles';
-      rolesSection = `OPEN ROLES: No open roles right now. ${closedCount} previously closed ${noun} on Whispered.`;
+      freeRolesLine = `No open roles right now — ${closedCount} previously tracked ${noun} are closed.`;
+      freeClosingQ = '**Do you have any insights on the company?**';
     } else {
-      rolesSection = 'OPEN ROLES: No roles currently tracked.';
+      freeRolesLine = 'No roles currently tracked.';
+      freeClosingQ = '**Do you have any insights on the company?**';
     }
+    rolesSection = `ROLES LINE (use this verbatim): ${freeRolesLine}`;
   } else if (roles && roles.length > 0) {
     const roleLines = roles.map(r => {
       const rf = r.fields || {};
@@ -118,6 +142,8 @@ Investors: ${investors || 'Unknown'}`.trim();
 
   const sections = [companySection, rolesSection];
   if (insightsSection) sections.push(insightsSection);
+  // For free tier, append the pre-built roles line to the data so it's clearly separated from instructions
+  if (freeRolesLine) sections.push(`ROLES LINE (copy this verbatim into your response):\n${freeRolesLine}`);
   const body = sections.join('\n\n');
 
   const linkInstruction = companyUrl
@@ -131,14 +157,19 @@ ${modeInstruction ? modeInstruction + '\n\n' : ''}${linkInstruction}DATA ON FILE
 ${body}
 ---
 
-Write a SHORT response that:
+${freeRolesLine ? `Write a SHORT response that:
 1. Gives the most useful snapshot of the company — what makes it interesting right now (1-2 sentences).
-2. If there are open roles, introduce them with "We have X open roles at [Company Name]:" (use the exact company name, not "this company" or "they"). Then list each role title on its own numbered line. If there is only one role, write "We have 1 open role at [Company Name]: [Title]" inline. Do not dump details — just the title.
-3. Ends with ONE short, generic question: "**Are you interested in one of these roles, or do you have insights on the company?**" (adapt wording naturally if there's only one role or no roles). Do NOT ask a specific industry or market question at this stage.
+2. Include the ROLES LINE above exactly as written — do not rephrase it.
+3. End with this EXACT closing question: ${freeClosingQ}
 
-IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure (such as a "growth outlook score") that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
+IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
+Do not use any markdown other than the bold in the closing question above.` : `Write a SHORT response that:
+1. Gives the most useful snapshot of the company — what makes it interesting right now (1-2 sentences).
+2. If there are open roles, introduce them with "We have X open roles at [Company Name]:" (use the exact company name). List each role title on its own numbered line. If only one role, mention it inline.
+3. Ends with ONE short, generic question: "**Are you interested in one of these roles, or do you have insights on the company?**" (adapt wording naturally if there's only one role or no roles). Do NOT ask a specific industry or market question.
 
-Bold only the closing question using **double asterisks**. Do not use any other markdown outside the numbered role list. Do NOT try to share everything — leave room for dialogue.`;
+IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
+Bold only the closing question using **double asterisks**. Do not use any other markdown outside the numbered role list. Do NOT try to share everything — leave room for dialogue.`}`;
 }
 
 

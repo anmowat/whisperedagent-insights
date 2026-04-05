@@ -1180,10 +1180,11 @@ class InsightsAgent {
     const allRoles = await this.db.getCompanyRoles(companyRecord.id);
     const roles = this._rolesForTier(allRoles, mode);
     const companyUrl = state ? (state.companyDomain || '') : '';
-    // For free synopsis, pass counts so the prompt shows "N open roles" or "X closed"
-    // without revealing titles or proactively explaining unposted roles.
+    // For free synopsis, pass posted role titles + unposted count so the prompt
+    // can say "We have 1 posted role (Title) and 3 unposted roles at Company."
     const rolesSummary = mode === 'free' ? {
-      activeCount: allRoles.filter(r => this._roleIsActive(r)).length,
+      postedActive: allRoles.filter(r => this._roleStatus(r) === 'public' && this._roleIsActive(r)),
+      unpostedActiveCount: allRoles.filter(r => this._roleStatus(r) === 'members-only' && this._roleIsActive(r)).length,
       closedCount: allRoles.filter(r =>
         /\bclosed\b/.test(this._normalizeStatus(this._field((r.fields || {}), 'Status', '')))
       ).length,
