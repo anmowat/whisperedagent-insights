@@ -456,11 +456,15 @@ class InsightsAgent {
       ) || /\bnone\b/.test(low);
 
       if (isNewCompanySignal) {
-        // Extract the company name from the text (strip noise like "i have a new company to add -")
-        const nameGuess = userText.replace(/i have a new company to add\s*[-–]?\s*/i, '')
+        // Strip noise phrases to extract just the company name
+        const companyName = userText
+          .replace(/none of (these|those|them)[\s.…]*[-–]?\s*/i, '')
+          .replace(/i have a new company to add\s*[-–]?\s*/i, '')
           .replace(/add (a )?(new )?company\s*[-–]?\s*/i, '')
-          .trim();
-        const companyName = nameGuess || null;
+          .replace(/it'?s?\s+(a\s+)?new\s+(company\s*)?[-–]?\s*/i, '')
+          .replace(/\b(new|add|different)\s+company\s*[-–]?\s*/i, '')
+          .trim()
+          .replace(/^(none|no|nope|not|nothing|nah)$/i, '') || null;
         state.phase = Phase.IDENTIFY;
         return this._startNewEntityCollection(state, companyName, null, false);
       }
