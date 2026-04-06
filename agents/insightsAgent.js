@@ -143,6 +143,26 @@ class InsightsAgent {
   // ------------------------------------------------------------------
 
   async _handleIdentify(state, userText) {
+    // Handle general "companies with X in their name" search queries
+    const nameSearchMatch = userText.match(/\b(?:companies|firms|startups)\b.{0,30}\b(?:with|named|called|containing)\b.{0,20}['""]?(\w+)['""]?.{0,20}\b(?:in|with).{0,10}\bname\b/i)
+      || userText.match(/\b(?:any other|other)\s+companies\b.{0,30}\bname\b.{0,20}['""]?(\w+)['""]?/i)
+      || userText.match(/\b(?:any other|other)\s+companies\b.*\b(\w{3,})\b/i);
+    if (nameSearchMatch) {
+      const keyword = nameSearchMatch[1].toLowerCase();
+      const companies = await this.db.findCompanies(keyword);
+      if (!companies || companies.length === 0) {
+        return `I didn't find any other companies with "${keyword}" in their name in our database. Is there a specific company you're looking for?`;
+      }
+      const list = companies
+        .map(c => {
+          const name = (c.fields || {})['Company Name'] || 'Unknown';
+          const domain = ((c.fields || {})['Domain'] || '').trim();
+          return domain ? `**${name}** (${domain})` : `**${name}**`;
+        })
+        .join('\n');
+      return `Here are the companies with "${keyword}" in their name that I have on file:\n\n${list}\n\n**Which one would you like to explore?**`;
+    }
+
     const parsed = await this._parseCompanyAndRole(userText);
 
     let companyRecord = null;
@@ -1042,6 +1062,9 @@ class InsightsAgent {
    */
   async _attributionClarification(state, userText) {
     if (!state.roleTitle && !state.companyName) return null;
+    // Never ask attribution for general search queries — handle them as new requests
+    if (/\b(companies|firms|startups)\b.{0,30}\b(with|named|called|containing|that have)\b/i.test(userText)) return null;
+    if (/\b(any other|other companies|more companies|other firms)\b/i.test(userText)) return null;
 
     const focus = state.roleTitle
       ? `"${state.roleTitle}" at ${state.companyName}`
