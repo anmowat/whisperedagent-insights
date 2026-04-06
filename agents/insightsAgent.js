@@ -144,23 +144,33 @@ class InsightsAgent {
 
   async _handleIdentify(state, userText) {
     // Handle general "companies with X in their name" search queries
-    const nameSearchMatch = userText.match(/\b(?:companies|firms|startups)\b.{0,30}\b(?:with|named|called|containing)\b.{0,20}['""]?(\w+)['""]?.{0,20}\b(?:in|with).{0,10}\bname\b/i)
-      || userText.match(/\b(?:any other|other)\s+companies\b.{0,30}\bname\b.{0,20}['""]?(\w+)['""]?/i)
-      || userText.match(/\b(?:any other|other)\s+companies\b.*\b(\w{3,})\b/i);
-    if (nameSearchMatch) {
-      const keyword = nameSearchMatch[1].toLowerCase();
-      const companies = await this.db.findCompanies(keyword);
-      if (!companies || companies.length === 0) {
-        return `I didn't find any other companies with "${keyword}" in their name in our database. Is there a specific company you're looking for?`;
+    const isNameSearch = /\b(companies|firms|startups)\b/i.test(userText) &&
+      /\b(with|containing|named|called)\b/i.test(userText) &&
+      /\bname\b/i.test(userText);
+    if (isNameSearch) {
+      // Extract keyword: "with X in" or "containing X" — simple targeted match
+      const kwMatch = userText.match(/\bwith\s+["']?(\w+)["']?\s+in\b/i)
+        || userText.match(/\bcontaining\s+["']?(\w+)["']?\b/i)
+        || userText.match(/\bnamed\s+["']?(\w+)["']?\b/i)
+        || userText.match(/\bcalled\s+["']?(\w+)["']?\b/i);
+      if (kwMatch) {
+        const keyword = kwMatch[1].toLowerCase();
+        const companies = await this.db.findCompanies(keyword);
+        if (!companies || companies.length === 0) {
+          return `I didn't find any companies with "${keyword}" in their name. Is there a specific company you're looking for?`;
+        }
+        if (companies.length > 10) {
+          return `I found ${companies.length} companies with "${keyword}" in their name — that's a lot! **Can you be more specific with the name?**`;
+        }
+        const list = companies
+          .map(c => {
+            const name = (c.fields || {})['Company Name'] || 'Unknown';
+            const domain = ((c.fields || {})['Domain'] || '').trim();
+            return domain ? `**${name}** (${domain})` : `**${name}**`;
+          })
+          .join('\n');
+        return `Here are the companies with "${keyword}" in their name that I have on file:\n\n${list}\n\n**Which one would you like to explore?**`;
       }
-      const list = companies
-        .map(c => {
-          const name = (c.fields || {})['Company Name'] || 'Unknown';
-          const domain = ((c.fields || {})['Domain'] || '').trim();
-          return domain ? `**${name}** (${domain})` : `**${name}**`;
-        })
-        .join('\n');
-      return `Here are the companies with "${keyword}" in their name that I have on file:\n\n${list}\n\n**Which one would you like to explore?**`;
     }
 
     const parsed = await this._parseCompanyAndRole(userText);
@@ -209,6 +219,9 @@ class InsightsAgent {
     } else if (companyName) {
       // Use findCompanies (plural) so we can detect ambiguity.
       const candidates = await this.db.findCompanies(companyName);
+      if (candidates.length > 10) {
+        return `I found ${candidates.length} possible matches for "${companyName}" — that's too many to list. **Can you be more specific with the company name?**`;
+      }
       if (candidates.length > 1) {
         return this._askDisambiguateCompany(state, candidates);
       } else if (candidates.length === 1) {
