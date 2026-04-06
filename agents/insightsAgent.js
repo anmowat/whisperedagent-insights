@@ -737,6 +737,39 @@ class InsightsAgent {
   }
 
   async _handleFollowup(state, userText) {
+    // Resolve a pending attribution clarification ("is that about Air or Globality?").
+    // The user's current message IS the answer — route to the named entity or stay put.
+    if (state.pendingAttributionEntity) {
+      const pendingEntity = state.pendingAttributionEntity;
+      state.pendingAttributionEntity = null;
+
+      const low = userText.toLowerCase();
+      const currentName = (state.companyName || '').toLowerCase();
+      const pendingLow = pendingEntity.toLowerCase();
+
+      // Did the user confirm the pending entity (not the current one)?
+      const confirmedPending = (
+        low.includes(pendingLow.split(' ')[0]) ||          // matches first word of pending entity
+        /\b(yes|yeah|the first|that one|correct|right)\b/.test(low)
+      );
+      const confirmedCurrent = (
+        low.includes(currentName.split(' ')[0]) ||
+        /\b(no|the second|current|this one)\b/.test(low)
+      );
+
+      if (confirmedPending && !confirmedCurrent) {
+        // Switch to the pending entity
+        state.phase = Phase.IDENTIFY;
+        state.companyRecordId = null;
+        state.companyName = null;
+        state.roleRecordId = null;
+        state.roleTitle = null;
+        state.insightFollowupsAsked = 0;
+        return await this._handleIdentify(state, pendingEntity);
+      }
+      // Otherwise stay on current company — fall through to normal handling
+    }
+
     // Role selection by number or name: user replied with a number or partial role name after a roles listing.
     if (state.companyRecordId && !state.roleRecordId) {
       const roles = this._rolesForTier(
@@ -1035,6 +1068,8 @@ class InsightsAgent {
       const result = JSON.parse(cleaned);
       if (!result.clear && result.entity) {
         const currentRef = this._roleRef(state) || this._companyRef(state);
+        // Store the pending attribution so the next message resolves it
+        state.pendingAttributionEntity = result.entity;
         return (
           `Just to make sure I capture this in the right place — ` +
           `**is that about ${result.entity}, or about ${currentRef}?**`
