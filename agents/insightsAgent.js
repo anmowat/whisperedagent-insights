@@ -796,6 +796,39 @@ class InsightsAgent {
       );
     }
 
+    // Detect "role was filled/closed" — update status and ask who was hired.
+    if (state.roleRecordId && this._isRoleFilledSignal(userText)) {
+      // Write to Airtable immediately (fire-and-forget, log on failure)
+      this.db.markRoleClosed(state.roleRecordId).catch(e =>
+        console.warn(`markRoleClosed fire-and-forget failed: ${e.message}`)
+      );
+      // Queue for the suggested-updates panel
+      if (!state.suggestedUpdates) state.suggestedUpdates = {};
+      if (!state.suggestedUpdates.role) state.suggestedUpdates.role = {};
+      state.suggestedUpdates.role.Status = '⚪️ Closed';
+      state.suggestedUpdates.role_name = state.roleTitle || state.suggestedUpdates.role_name;
+      state.suggestedUpdates.company_name = state.companyName || state.suggestedUpdates.company_name;
+      // Flag so the next answer is captured as "who was hired" context
+      state.pendingRoleFilledFollowup = true;
+      const roleRef = state.roleTitle ? `the **${state.roleTitle}** role` : 'this role';
+      return `Got it — we'll mark ${roleRef} as closed. **Do you happen to know who they hired?**`;
+    }
+
+    // If we just asked who was hired, capture the answer into role notes
+    if (state.pendingRoleFilledFollowup) {
+      state.pendingRoleFilledFollowup = false;
+      const isUnknown = /\b(no|don'?t know|not sure|no idea|unclear|unknown)\b/i.test(userText);
+      if (!isUnknown && userText.trim().length > 1) {
+        if (!state.suggestedUpdates) state.suggestedUpdates = {};
+        if (!state.suggestedUpdates.role) state.suggestedUpdates.role = {};
+        const existing = state.suggestedUpdates.role.Notes || '';
+        state.suggestedUpdates.role.Notes = existing
+          ? `${existing}\nHired: ${userText.trim()}`
+          : `Hired: ${userText.trim()}`;
+      }
+      return this._buildInsightWrapUp(state);
+    }
+
     // Detect "I have a new/another role" intent — respond warmly and set a flag so the
     // next message (the role title) skips DB lookup and goes straight to collection.
     if (state.companyRecordId && !state.roleRecordId && this._isNewRoleSignal(userText)) {
@@ -1170,6 +1203,15 @@ class InsightsAgent {
   }
 
   /** Returns true when the user signals they know about a new/unlisted role. */
+  _isRoleFilledSignal(text) {
+    const lower = text.toLowerCase();
+    return (
+      /\b(filled|closed|hired|no longer (open|available)|taken|gone)\b/.test(lower) &&
+      /\b(role|position|job|opening|it|that)\b/.test(lower)
+    ) || /\b(role|position|job)\b.{0,20}\b(was|is|got|been)\b.{0,20}\b(filled|closed|hired)\b/.test(lower)
+      || /\b(they|company).{0,20}\b(hired|filled)\b/.test(lower);
+  }
+
   _isNewRoleSignal(text) {
     const lower = text.toLowerCase();
     return (

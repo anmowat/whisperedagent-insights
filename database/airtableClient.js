@@ -494,6 +494,32 @@ class AirtableClient {
   }
 
   /**
+   * Update a role's Status linked-record field to the "Closed" option.
+   * Finds the status record ID whose name contains "closed" (case-insensitive).
+   * @param {string} roleRecordId
+   * @returns {Promise<boolean>} true on success
+   */
+  async markRoleClosed(roleRecordId) {
+    try {
+      await this._ensureStatusNameCache();
+      let closedId = null;
+      for (const [id, name] of this._statusNameCache.entries()) {
+        if (/closed/i.test(name)) { closedId = id; break; }
+      }
+      if (!closedId) {
+        console.warn('markRoleClosed: no "Closed" status record found in cache');
+        return false;
+      }
+      await this.roles.update(roleRecordId, { Status: [closedId] });
+      console.info(`markRoleClosed: updated role ${roleRecordId} → Status=[${closedId}]`);
+      return true;
+    } catch (err) {
+      console.warn(`markRoleClosed failed for role ${roleRecordId}: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Return valid Region picklist values from the Roles table schema (cached).
    * @returns {Promise<string[]>}
    */
