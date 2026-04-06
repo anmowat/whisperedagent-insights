@@ -817,15 +817,15 @@ class InsightsAgent {
     // If we just asked who was hired, capture the answer into role notes
     if (state.pendingRoleFilledFollowup) {
       state.pendingRoleFilledFollowup = false;
-      const isUnknown = /\b(no|don'?t know|not sure|no idea|unclear|unknown)\b/i.test(userText);
-      if (!isUnknown && userText.trim().length > 1) {
-        if (!state.suggestedUpdates) state.suggestedUpdates = {};
-        if (!state.suggestedUpdates.role) state.suggestedUpdates.role = {};
-        const existing = state.suggestedUpdates.role.Notes || '';
-        state.suggestedUpdates.role.Notes = existing
-          ? `${existing}\nHired: ${userText.trim()}`
-          : `Hired: ${userText.trim()}`;
-      }
+      if (!state.suggestedUpdates) state.suggestedUpdates = {};
+      if (!state.suggestedUpdates.role) state.suggestedUpdates.role = {};
+      const isUnknown = /\b(no\b|don'?t know|not sure|no idea|unclear|unknown|nope|nah)\b/i.test(userText)
+        || userText.trim().length <= 2;
+      const existing = state.suggestedUpdates.role.Notes || '';
+      const hireNote = isUnknown
+        ? 'Role filled, hired candidate unknown'
+        : `Role filled, hired: ${userText.trim()}`;
+      state.suggestedUpdates.role.Notes = existing ? `${existing}\n${hireNote}` : hireNote;
       return this._buildInsightWrapUp(state);
     }
 
