@@ -699,6 +699,13 @@ class InsightsAgent {
     return null;
   }
 
+  /**
+   * Classify the user's message relative to the ongoing conversation.
+   * Returns:
+   *   'reply'       — user is sharing information / answering the agent's question
+   *   'question'    — user is asking the agent something about the current company/role
+   *   'new_request' — user is asking about a completely different company or role
+   */
   async _isContinuationReply(state, userText) {
     let lastAgent = '';
     for (let i = state.messages.length - 1; i >= 0; i--) {
@@ -712,13 +719,18 @@ class InsightsAgent {
     const prompt = (
       `The assistant just said: "${lastAgent}"\n` +
       `The user replied: "${userText}"\n\n` +
-      "Is the user directly answering/continuing the assistant's question, " +
-      'or are they asking about a completely new company or role?\n' +
-      'Reply with exactly one word: "reply" or "new_request".'
+      'Classify the user reply as one of:\n' +
+      '- "reply": user is sharing information or answering the agent\'s question\n' +
+      '- "question": user is asking the agent something about the same company/role\n' +
+      '- "new_request": user is asking about a completely different company or role\n' +
+      'Reply with exactly one word: "reply", "question", or "new_request".'
     );
     try {
       const raw = await this._callClaude([{ role: 'user', content: prompt }], { maxTokens: 5 });
-      return raw.trim().toLowerCase().startsWith('reply');
+      const result = raw.trim().toLowerCase();
+      if (result.startsWith('question')) return 'question';
+      if (result.startsWith('reply')) return 'reply';
+      return false;
     } catch (e) {
       return false;
     }
@@ -894,7 +906,15 @@ class InsightsAgent {
       }
     }
 
-    if (await this._isContinuationReply(state, userText)) {
+    const continuationType = await this._isContinuationReply(state, userText);
+
+    // User is asking the agent a question about the current company/role — answer it,
+    // don't count it as an insight and don't trigger the wrap-up.
+    if (continuationType === 'question') {
+      return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
+    }
+
+    if (continuationType === 'reply') {
       const clarification = await this._attributionClarification(state, userText);
       if (clarification) return clarification;
       await this._extractAndAccumulate(state, userText);
@@ -1325,8 +1345,8 @@ class InsightsAgent {
     const companyName = state.companyName || null;
     const coRef = companyName ? this._companyRef(state) : null;
     const followUp = coRef
-      ? `**Are there other roles or companies you're exploring, or do you have insights on ${coRef} to share?**`
-      : `**Are there other roles or companies you're exploring, or do you have insights you'd like to share?**`;
+      ? `**Do you have any insights on ${coRef} to share, or are there other roles or companies I can help you with?**`
+      : `**Do you have any insights to share, or are there other roles or companies I can help you with?**`;
     return (
       `Unposted roles are shared with us in confidence by recruiters, companies and Whispered paid members. ` +
       `We get these roles because all parties trust that roles shared with Whispered remain confidential and don't spread publicly — so we can only share them with paying members who've agreed to our community standards.\n\n` +
@@ -1346,7 +1366,7 @@ class InsightsAgent {
 
     // "roles" or pronouns like "ones", "them", "those" standing in for roles
     const roleWord = '(roles?|ones?|them|those|positions?)';
-    const requestVerb = '(show|see|access|view|get|share|reveal|unlock|find)';
+    const requestVerb = '(show|tell|see|access|view|get|share|reveal|unlock|find)';
     const unpostedWord = '(unposted|confidential|hidden|private|gated|restricted|members.only|whispered)';
 
     return (
@@ -1354,8 +1374,8 @@ class InsightsAgent {
       new RegExp(`\\b${requestVerb}.{0,20}\\b${unpostedWord}\\b.{0,20}\\b${roleWord}\\b`).test(low) ||
       // "unposted roles/ones — show me"
       new RegExp(`\\b${unpostedWord}\\b.{0,20}\\b${roleWord}\\b.{0,20}\\b${requestVerb}\\b`).test(low) ||
-      // "can I / why can't I see/access ... roles/ones"
-      new RegExp(`\\b(can i|could i|how do i|how can i|why can.?t i).{0,30}\\b${requestVerb}.{0,30}\\b${roleWord}\\b`).test(low) ||
+      // "can I / can you / why can't I see/access ... roles/ones"
+      new RegExp(`\\b(can (i|you)|could (i|you)|how do i|how can i|why can.?t i).{0,30}\\b${requestVerb}.{0,30}\\b${roleWord}\\b`).test(low) ||
       // "show/see the other/those/all roles/ones"
       new RegExp(`\\b${requestVerb}.{0,20}\\b(those|the other|other|all|remaining|rest of the).{0,15}\\b${roleWord}\\b`).test(low) ||
       // "what are the other/those roles/ones"
