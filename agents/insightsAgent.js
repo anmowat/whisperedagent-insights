@@ -815,7 +815,7 @@ class InsightsAgent {
       state.pendingRoleFilledFollowup = false;
       if (!state.suggestedUpdates) state.suggestedUpdates = {};
       if (!state.suggestedUpdates.role) state.suggestedUpdates.role = {};
-      const isUnknown = /\b(no\b|don'?t know|not sure|no idea|unclear|unknown|nope|nah)\b/i.test(userText)
+      const isUnknown = /\b(no\b|don'?t(\s+know)?|not sure|no idea|unclear|unknown|nope|nah)\b/i.test(userText)
         || userText.trim().length <= 2;
       const existing = state.suggestedUpdates.role.Notes || '';
       const hireNote = isUnknown
