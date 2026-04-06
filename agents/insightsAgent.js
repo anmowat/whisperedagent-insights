@@ -1607,10 +1607,16 @@ class InsightsAgent {
    * @param {boolean} hasExistingCompany  True when the company IS in the DB but the role is not
    */
   _startNewEntityCollection(state, companyName, roleTitle, hasExistingCompany) {
+    // Reuse domain already collected earlier in this session (e.g. when adding a role
+    // after the company was just queued in the same conversation).
+    const knownDomain = state.companyDomain
+      ? state.companyDomain.replace(/^https?:\/\//, '').split('/')[0]
+      : null;
+
     state.pendingNewEntity = {
       companyName: companyName || null,
       roleTitle: roleTitle || null,
-      domain: null,
+      domain: knownDomain,
       find: null,
       notes: null,
       location: null,
