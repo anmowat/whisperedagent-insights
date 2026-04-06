@@ -1627,6 +1627,13 @@ class InsightsAgent {
     state.phase = Phase.COLLECTING_NEW_ENTITY;
 
     if (companyName && roleTitle) {
+      if (hasExistingCompany || knownDomain) {
+        // Company already known — only the role is new
+        return (
+          `We don't have a **${roleTitle}** role at **${companyName}** in our database yet. ` +
+          `**Just to confirm — is that the role you're looking at?**`
+        );
+      }
       return (
         `We don't have **${companyName}** or a **${roleTitle}** role in our database yet. ` +
         `**Just to confirm — are you talking about the ${roleTitle} role at ${companyName}?**`
