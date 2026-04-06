@@ -875,7 +875,8 @@ class InsightsAgent {
         return this._buildInsightWrapUp(state);
       }
       state.insightFollowupsAsked++;
-      return this._firstFollowupQuestion(state);
+      if (state.roleTitle) return this._firstFollowupQuestion(state);
+      return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
     }
 
     const parsed = await this._parseCompanyAndRole(userText);
@@ -947,7 +948,8 @@ class InsightsAgent {
       return this._buildInsightWrapUp(state);
     }
     state.insightFollowupsAsked++;
-    return this._firstFollowupQuestion(state);
+    if (state.roleTitle) return this._firstFollowupQuestion(state);
+    return await this._callClaude(state.messages, { system: await this._buildFollowupSystem(state) });
   }
 
   /**
