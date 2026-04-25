@@ -150,6 +150,11 @@ Investors: ${investors || 'Unknown'}`.trim();
     ? `Formatting: whenever you mention the company name in your response, write it as the markdown hyperlink ${companyRef} — do not write the plain name.\n\n`
     : '';
 
+  const hasConfidentialNotes = (mode === 'premium' || mode === 'pro') && !!(fields['Confidential Notes'] || '').trim();
+  const closingInstruction = hasConfidentialNotes
+    ? '3. Mention that we have additional intel on this company and offer to share it — then ask if they\'d like to hear it OR if they have insights of their own to add. Do NOT ask whether the user knows anyone there or has a personal connection to the company.'
+    : '3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they\'re in, or their leadership. Do NOT ask whether the user knows anyone there or has a personal connection to the company.';
+
   return `You are the Insights agent for a professional community. A member just asked about this company.
 
 ${modeInstruction ? modeInstruction + '\n\n' : ''}${linkInstruction}DATA ON FILE:
@@ -157,10 +162,10 @@ ${modeInstruction ? modeInstruction + '\n\n' : ''}${linkInstruction}DATA ON FILE
 ${body}
 ---
 
-${freeRolesLine ? `Write a SHORT response that:
-1. Gives the most useful snapshot of the company — what makes it interesting right now (1-2 sentences).
-2. Include the ROLES LINE above exactly as written — do not rephrase it.
-3. End with this EXACT closing question: ${freeClosingQ}
+Write a SHORT response (3-4 sentences max) that:
+1. Gives the most useful snapshot of the company — what makes it interesting right now.
+2. Notes any open roles briefly (just titles, no details dump).
+${closingInstruction}
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
 Do not use any markdown other than the bold in the closing question above.` : `Write a SHORT response that:
