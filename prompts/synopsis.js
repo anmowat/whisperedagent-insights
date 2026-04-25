@@ -302,9 +302,21 @@ function buildRolesListingPrompt(company, openRoles, closedRoles, companyUrl = '
     : 'None tracked.';
 
   const multipleOpen = openRoles && openRoles.length > 1;
+
+  // Detect which extra data fields are populated across the open roles
+  const extraLabels = [];
+  if ((openRoles || []).some(r => (r.fields || {})['HM Name'])) extraLabels.push('hiring manager');
+  if ((openRoles || []).some(r => (r.fields || {}).Notes)) extraLabels.push('role notes');
+  if ((openRoles || []).some(r => (r.fields || {}).Find)) extraLabels.push('how to get in');
+  if ((openRoles || []).some(r => (r.fields || {}).Compensation)) extraLabels.push('compensation');
+  const hasExtra = extraLabels.length > 0;
+  const extraHint = hasExtra
+    ? `We have additional details on these roles (${extraLabels.join(', ')}). Mention this briefly before asking which role. `
+    : '';
+
   const endingInstruction = multipleOpen
-    ? 'End by asking the user which of these roles they\'d like to explore further — do NOT ask a specific question about one role before knowing which one they care about.'
-    : 'End with ONE question about what the user has heard regarding the hiring process or timeline.';
+    ? `${extraHint}End by asking which of these roles they'd like to explore further — do NOT ask a specific question about one role before knowing which one they care about.`
+    : `${hasExtra ? extraHint : ''}End with ONE question about what the user has heard regarding the hiring process or timeline.`;
 
   const linkInstruction = companyUrl
     ? `Formatting: when mentioning the company name use ${companyRef}, and when listing role titles use the markdown links provided in OPEN ROLES above — do not write plain names.\n\n`
