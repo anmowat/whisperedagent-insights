@@ -45,13 +45,12 @@ Investors: ${investors || 'Unknown'}`.trim();
   }
 
   let rolesSection;
-  let freeRolesLine = '';   // pre-built line for free tier (used verbatim in prompt)
-  let freeClosingQ = '';    // pre-built closing question for free tier
+  let freeRolesLine = '';
+  let freeClosingQ = '';
   if (mode === 'free' && rolesSummary) {
     const { postedActive = [], unpostedActiveCount = 0, closedCount = 0 } = rolesSummary;
     const postedCount = postedActive.length;
     if (postedCount > 0 || unpostedActiveCount > 0) {
-      // Build the "We have X posted role(s) (Title) and Y unposted roles at Company" line
       const parts = [];
       if (postedCount === 1) {
         const title = (postedActive[0].fields || {}).Title || 'Untitled';
@@ -71,7 +70,6 @@ Investors: ${investors || 'Unknown'}`.trim();
       } else if (postedCount === 1) {
         freeClosingQ = '**Are you interested in this role, or do you have insights on the company?**';
       } else {
-        // Only unposted roles — user can't see the role title so don't ask if they're interested in it
         freeClosingQ = `**Do you have any insights on the team or business at ${companyName}, or are there other roles or companies you're interested in?**`;
       }
     } else if (closedCount > 0) {
@@ -151,9 +149,14 @@ Investors: ${investors || 'Unknown'}`.trim();
     : '';
 
   const hasConfidentialNotes = (mode === 'premium' || mode === 'pro') && !!(fields['Confidential Notes'] || '').trim();
-  const closingInstruction = hasConfidentialNotes
-    ? '3. Mention that we have additional intel on this company and offer to share it — then ask if they\'d like to hear it OR if they have insights of their own to add. Do NOT ask whether the user knows anyone there or has a personal connection to the company.'
-    : '3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they\'re in, or their leadership. Do NOT ask whether the user knows anyone there or has a personal connection to the company.';
+  let closingInstruction;
+  if (mode === 'free' && freeClosingQ) {
+    closingInstruction = `3. End with this closing question (use it verbatim): ${freeClosingQ}`;
+  } else if (hasConfidentialNotes) {
+    closingInstruction = '3. Mention that we have additional intel on this company and offer to share it — then ask if they\'d like to hear it OR if they have insights of their own to add. Do NOT ask whether the user knows anyone there or has a personal connection to the company.';
+  } else {
+    closingInstruction = '3. Ends with ONE short, welcoming question asking if the user has any insights on the company — for example about their growth, the space they\'re in, or their leadership. Do NOT ask whether the user knows anyone there or has a personal connection to the company.';
+  }
 
   return `You are the Insights agent for a professional community. A member just asked about this company.
 
@@ -168,13 +171,8 @@ Write a SHORT response (3-4 sentences max) that:
 ${closingInstruction}
 
 IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
-Do not use any markdown other than the bold in the closing question above.` : `Write a SHORT response that:
-1. Gives the most useful snapshot of the company — what makes it interesting right now (1-2 sentences).
-2. If there are open roles, introduce them like this (use the exact company name and adapt count naturally): "${hasInsights ? 'We have confidential insights from other members and [N] open role(s) at [Company Name]: [Title]' : 'We have [N] open role(s) at [Company Name]: [Title]'}". List each role on its own numbered line if there are multiple.
-3. Ends with ONE short, generic question: "**Are you interested in one of these roles, or do you have insights on the company?**" (adapt wording naturally if there's only one role or no roles). Do NOT ask a specific industry or market question.
 
-IMPORTANT: Only reference facts that are explicitly present in the DATA ON FILE above. Do NOT invent, estimate, or compute any metric, score, or figure that does not appear verbatim in the data. If a field says "Not available" or "N/A", omit it entirely.
-Bold only the closing question using **double asterisks**. Do not use any other markdown outside the numbered role list. Do NOT try to share everything — leave room for dialogue.`}`;
+Bold only the question sentence using **double asterisks**. Do not use any other markdown. Do NOT try to share everything — leave room for dialogue.`;
 }
 
 
@@ -327,8 +325,6 @@ function buildRolesListingPrompt(company, openRoles, closedRoles, companyUrl = '
     const title = rf.Title || 'Untitled';
     const appPage = (rf['App Page'] || '').trim();
     const titleRef = appPage ? `[${title}](${appPage})` : title;
-    // Use the role's own resolved company name (set by _listCompanyRoles),
-    // falling back to the queried companyName only when not available.
     const roleCompany = rf._company_name || companyName;
     const parts = [`${titleRef} at ${roleCompany}`];
     if (rf.Function) parts.push(`Function: ${rf.Function}`);
@@ -348,7 +344,6 @@ function buildRolesListingPrompt(company, openRoles, closedRoles, companyUrl = '
 
   const multipleOpen = openRoles && openRoles.length > 1;
 
-  // Detect which extra data fields are populated across the open roles
   const extraLabels = [];
   if ((openRoles || []).some(r => (r.fields || {})['HM Name'])) extraLabels.push('hiring manager');
   if ((openRoles || []).some(r => (r.fields || {}).Notes)) extraLabels.push('role notes');
