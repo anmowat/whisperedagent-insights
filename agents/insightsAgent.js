@@ -689,17 +689,19 @@ class InsightsAgent {
   async _handleFollowup(state, userText) {
     // Role selection by number or name: user replied with a number or partial role name after a roles listing.
     if (state.companyRecordId && !state.roleRecordId) {
-      const roles = this._rolesForTier(
+      const allVisible = this._rolesForTier(
         await this.db.getCompanyRoles(state.companyRecordId), state.mode
       );
+      // Number selection must index only into active (non-closed) roles, matching what the synopsis displayed.
+      const activeRoles = allVisible.filter(r => this._roleIsActive(r));
       let picked = null;
       const numMatch = userText.trim().match(/^#?(\d+)$/);
       if (numMatch) {
         const idx = parseInt(numMatch[1], 10) - 1;
-        if (idx >= 0 && idx < roles.length) picked = roles[idx];
-      } else if (roles.length > 0) {
+        if (idx >= 0 && idx < activeRoles.length) picked = activeRoles[idx];
+      } else if (allVisible.length > 0) {
         const needle = userText.trim().toLowerCase();
-        picked = roles.find(r => {
+        picked = allVisible.find(r => {
           const title = (this._field((r.fields || {}), 'Title') || '').toLowerCase();
           return title.includes(needle);
         }) || null;
